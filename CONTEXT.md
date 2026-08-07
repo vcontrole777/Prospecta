@@ -22,6 +22,10 @@ _Avoid_: descadastro, remoção, recusa
 Os números que não podem ser discados por nenhuma Campanha, para sempre.
 _Avoid_: blacklist, lista negra, DNC
 
+**Disparo**:
+O WhatsApp ou SMS enviado ao Lead em consequência do Opt-in. Nunca chamado de "mensagem" — Mensagem é o áudio da Campanha.
+_Avoid_: envio, mensagem, notificação
+
 ### Campanha
 
 **Campanha**:
@@ -71,7 +75,7 @@ O resultado de negócio de uma Ligação: não atendeu, caiu em Máquina, deu Op
 _Avoid_: status, resultado, disposição
 
 **CDR**:
-O registro técnico de uma Ligação — horários, duração, condição da linha. Distinto do Desfecho, que é o resultado de negócio.
+A visão das Ligações pelos seus dados técnicos — horários, duração, condição da linha. Não é uma entidade própria: são atributos da própria Ligação, ao lado do Desfecho, que é o resultado de negócio.
 _Avoid_: log de chamada, histórico
 
 **BINA**:
