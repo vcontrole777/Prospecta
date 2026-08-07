@@ -2,9 +2,7 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
-## Prerequisite
-
-At the time this file was written, this directory was **not yet a git repository** and had no GitHub remote. `gh` infers the repo from `git remote -v`, so run `git init` and add a GitHub remote (or `gh repo create`) before the skills can create or read issues. Once a remote exists, everything below works without further configuration.
+Repo: [`vcontrole777/Prospecta`](https://github.com/vcontrole777/Prospecta) (private).
 
 ## Conventions
 
