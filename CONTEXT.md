@@ -41,8 +41,16 @@ A ordem em que os Leads de uma Campanha serão discados.
 _Avoid_: lista de discagem, batch
 
 **URA**:
-O fluxo que o Lead percorre depois de atender: ouve a mensagem e responde.
+O fluxo que o Lead percorre depois de atender: ouve a Mensagem e responde.
 _Avoid_: IVR, menu, árvore
+
+**Mensagem**:
+O áudio principal da Campanha, tocado assim que o Lead atende.
+_Avoid_: locução, gravação, prompt
+
+**Áudio de confirmação**:
+O áudio tocado depois da resposta do Lead, confirmando o Opt-in ou o Opt-out.
+_Avoid_: agradecimento, despedida
 
 ### Telefonia
 
