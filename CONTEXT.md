@@ -26,6 +26,10 @@ _Avoid_: blacklist, lista negra, DNC
 O WhatsApp ou SMS enviado ao Lead em consequência do Opt-in. Nunca chamado de "mensagem" — Mensagem é o áudio da Campanha.
 _Avoid_: envio, mensagem, notificação
 
+**Notificação**:
+O aviso enviado ao dono da Campanha com o resultado de uma captura. Distinto do Disparo, que vai para o Lead.
+_Avoid_: alerta, aviso, disparo
+
 ### Campanha
 
 **Campanha**:
