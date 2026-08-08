@@ -22,12 +22,16 @@ _Avoid_: descadastro, remoção, recusa
 Os números que não podem ser discados por nenhuma Campanha, para sempre.
 _Avoid_: blacklist, lista negra, DNC
 
+**Ação**:
+Algo que o sistema faz fora dele em consequência do que aconteceu numa Ligação. Disparo e Notificação são Ações; consultar um CPF digitado e publicar um evento também. Não é clique de botão nem etapa da URA.
+_Avoid_: tarefa, job, envio
+
 **Disparo**:
-O WhatsApp ou SMS enviado ao Lead em consequência do Opt-in. Nunca chamado de "mensagem" — Mensagem é o áudio da Campanha.
+A Ação de enviar WhatsApp ou SMS ao Lead em consequência do Opt-in. Nunca chamado de "mensagem" — Mensagem é o áudio da Campanha.
 _Avoid_: envio, mensagem, notificação
 
 **Notificação**:
-O aviso enviado ao dono da Campanha com o resultado de uma captura. Distinto do Disparo, que vai para o Lead.
+A Ação de avisar o dono da Campanha com o resultado de uma captura. Distinta do Disparo, que vai para o Lead.
 _Avoid_: alerta, aviso, disparo
 
 ### Campanha
