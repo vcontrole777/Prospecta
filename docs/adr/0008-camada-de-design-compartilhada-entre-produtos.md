@@ -42,7 +42,7 @@ A disciplina é a mesma do ADR-0006 por um motivo análogo: a classe compartilha
 
 Quatro escolhas carregam a identidade, e nenhuma delas vem de biblioteca:
 
-1. **Estado de Ligação é o sistema de cor, não um acessório.** Toda linha de toda tabela é uma Ligação num estado, então a paleta é projetada em volta do conjunto (`tocando`, `atendida`, `máquina`, `falhou`, `bloqueado`, `opt-in`): seis cores distinguíveis em badge, em 4 px de sparkline, e numa tabela densa com centenas simultâneas. A cor da marca vem depois disso, não antes.
+1. **Estado de Ligação é codificado por PESO e RÓTULO; cor é reforço escasso.** Toda linha de toda tabela é uma Ligação num estado, então o conjunto (`tocando`, `atendida`, `máquina`, `falhou`, `bloqueado`, `opt-in`) governa o desenho — mas por peso, não por tinta. Ver a seção "Registro e paleta" para o raciocínio completo e o contraste verificado. (Uma formulação anterior deste ADR dizia "estado é o sistema de cor", com seis cores saturadas; seis cores numa tabela de centenas de linhas é o ruído que o registro escolhido evita, e a codificação por peso funciona também em daltonismo.)
 2. **Algarismo tabular em todo dado numérico** (`font-variant-numeric: tabular-nums`), porque o dígito não pode pular quando o monitor ao vivo atualiza. Mais uma família mono ou semi-mono nos identificadores — telefone, código SIP, `ChannelId`.
 3. **Densidade deliberada.** O produto é dado denso por natureza (CDR, monitor de canais); kits são espaçosos porque servem app de marketing. Denso e calmo é o registro correto e é funcionalmente melhor aqui.
 4. **Modo escuro como padrão, claro como alternativa.** O operador acompanha o monitor ao vivo por horas.
