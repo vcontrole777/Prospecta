@@ -80,7 +80,13 @@
      Requisito não negociável: ALGARISMO TABULAR na família de
      interface — o dígito não pode pular quando o monitor ao
      vivo atualiza a cada segundo. */
-  --font-sans: /* TODO: grotesco da marca */ "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* Helvetica NÃO é substituto aqui — é a escolha canônica do registro.
+     Tipografia suíça é a linhagem Helvetica/Univers, então esta pilha está
+     correta por si, não à espera de algo melhor.
+     Se um dia houver fonte de marca, ela SUBSTITUI esta escolha; não preenche
+     uma lacuna. E a exigência que sobrevive a qualquer troca é algarismo
+     tabular — sem isso o dígito pula quando o monitor ao vivo atualiza. */
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
   /* Saltos largos: suíço faz hierarquia por tamanho e peso,
