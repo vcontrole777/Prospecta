@@ -14,7 +14,6 @@
    cinco acentos da paleta existem só em gráfico, onde o dado
    é genuinamente categórico.
 
-   PENDENTE: a família tipográfica aguarda a fonte da marca.
    ============================================================ */
 
 @theme {
@@ -155,7 +154,7 @@
 
   /* ---- Estado de Ligação ------------------------------
      Codificado por PESO e RÓTULO. Cor é reforço escasso: só
-     opt-in e falhou recebem tinta. Ver ADR-0008. */
+     opt-in e falhou recebem tinta. Ver ADR-0008.
      Três pesos de cinza, todos AA, mais duas cores. A distinção
      entre os cinzas vem do RÓTULO, não do tom — que é
      exatamente como este registro funciona. */
