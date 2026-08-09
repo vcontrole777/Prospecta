@@ -233,15 +233,39 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   /* Requisito do domínio, não preferência: o produto é feito de
-     números que atualizam ao vivo. */
-  font-variant-numeric: tabular-nums;
+     números que atualizam ao vivo.
+     `lining-nums` é garantia contra o oposto (`oldstyle-nums`), cujos
+     dígitos têm ascendente e descendente e são ilegíveis em tabela. */
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 /* Telefone, código SIP, ChannelId, duração. */
 .identificador {
   font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "zero" 1; /* zero cortado: 0 contra O */
+
+  /* Os três compõem numa declaração só. Note que NÃO usamos
+     `font-feature-settings: "zero" 1` para o zero cortado: aquela
+     propriedade SOBRESCREVE todas as features quando redeclarada, então
+     dois lugares pedindo features diferentes se atropelam em silêncio.
+     `font-variant-numeric` compõe. */
+  font-variant-numeric: tabular-nums slashed-zero lining-nums;
+
+  /* Mono de programação (JetBrains, Fira Code) liga sequências como
+     `->` e `!=`. Numa tela de traço SIP — `--> INVITE`, `<-- 503` —
+     isso viraria glifo combinado, e o defeito só apareceria para quem
+     já está depurando. */
+  font-variant-ligatures: none;
+}
+
+/* Coluna numérica. Alinhar à direita rende MAIS que qualquer recurso de
+   fonte, e não depende de a fonte cooperar.
+   As duas outras decisões da mesma família são de CÓDIGO, não de CSS, e
+   ficam registradas aqui para não se perderem:
+     - zerar à esquerda: "2m04s", nunca "2m4s". É o que de fato alinha.
+     - separador de milhar por Intl.NumberFormat em pt-BR: 20.500. */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 /* Rótulo em caixa alta é estrutural neste registro. */
