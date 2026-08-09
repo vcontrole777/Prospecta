@@ -27,6 +27,14 @@ app_dir: /opt/prospecta
 app_usuario: prospecta
 
 audio_dir: /var/lib/asterisk/sounds/prospecta
+
+# Áudios de SISTEMA do produto, em pt-BR. Nenhum embutido do Asterisk chega
+# ao Lead — voz de sistema no meio da Campanha soa como outra pessoa falando.
+# Formato obrigatório: 8000 Hz, mono, alaw (casa com o codec do tronco).
+# `abertura` tem limite duro de ~1 s: mais que isso invade a janela do AMD.
+audios_sistema:
+  - abertura
+  - naoentendi
 gravacao_dir: /var/spool/asterisk/gravacoes
 
 # Gravação: GSM é ~10x menor que WAV. 200 canais em WAV são 41 GB/dia

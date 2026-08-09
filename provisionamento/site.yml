@@ -170,6 +170,30 @@
             - "{{ audio_dir }}"
             - "{{ gravacao_dir }}"
 
+        # MEDIDO: Playback em arquivo ausente devolve PLAYBACKSTATUS=FAILED
+        # e o dialplan CONTINUA. O Lead ouve silêncio e o fluxo segue como se
+        # nada tivesse acontecido. Por isso esta verificação falha o playbook:
+        # instância sem os áudios de sistema não roda Campanha.
+        - name: Instalar os áudios de sistema
+          ansible.builtin.copy:
+            src: "../audios/{{ item }}.alaw"
+            dest: "{{ audio_dir }}/{{ item }}.alaw"
+            owner: asterisk
+            group: asterisk
+            mode: "0640"
+          loop: "{{ audios_sistema }}"
+
+        - name: Conferir formato dos áudios de sistema
+          ansible.builtin.command:
+            cmd: "soxi -c -r {{ audio_dir }}/{{ item }}.alaw"
+          register: fmt_audio
+          changed_when: false
+          loop: "{{ audios_sistema }}"
+          failed_when: >-
+            fmt_audio.rc != 0
+            or '1' not in fmt_audio.stdout_lines
+            or '8000' not in fmt_audio.stdout_lines
+
         - name: Configuração do tronco
           ansible.builtin.template:
             src: templates/pjsip-tronco.conf.j2
