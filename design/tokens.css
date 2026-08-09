@@ -1,0 +1,248 @@
+/* ============================================================
+   Prospecta — tokens de design
+   Registro: suíço / industrial. Escuro por padrão.
+   Paleta de origem: Dracula (OSS), escura e clara.
+
+   Artefato COMPARTILHADO entre os produtos de telefonia da
+   empresa (ADR-0008). Nada aqui pode ser específico de
+   Prospecta. Quando o segundo produto começar, este arquivo
+   é publicado como pacote e importado pelos dois.
+
+   REGRA DE ESCASSEZ (ADR-0008)
+   No cromo — tabela, navegação, formulário — só existem a
+   espinha neutra, UM acento e o vermelho de falha. Os outros
+   cinco acentos da paleta existem só em gráfico, onde o dado
+   é genuinamente categórico.
+
+   PENDENTE: a família tipográfica aguarda a fonte da marca.
+   ============================================================ */
+
+@theme {
+  /* ---- Espinha neutra ------------------------------------
+     Âncoras vindas da paleta; os passos intermediários são
+     interpolados, porque régua de 1px precisa de mais degraus
+     que as quatro cores originais oferecem. */
+  --color-n-1000: #191a21; /* mais fundo que o Background */
+  --color-n-950:  #21222c;
+  --color-n-900:  #282a36; /* ← Background (Dracula escuro) */
+  --color-n-850:  #313442;
+  --color-n-800:  #3b3d4e;
+  --color-n-750:  #44475a; /* ← Current Line / Selection */
+  --color-n-700:  #4e5165;
+  --color-n-600:  #585c74;
+  --color-n-500:  #6272a4; /* ← Comment — texto atenuado */
+  --color-n-400:  #8b90ad;
+  --color-n-300:  #b3b6c8;
+  --color-n-200:  #d5d7e0;
+  --color-n-100:  #f8f8f2; /* ← Foreground */
+
+  /* Espinha do modo claro. A paleta clara é QUENTE, ao
+     contrário da escura, que é fria. Cada uma é coerente
+     internamente; honramos as duas. */
+  --color-l-bg:        #fffbeb; /* ← Background claro, creme */
+  --color-l-surface:   #faf5e0;
+  --color-l-raised:    #f2ecd4;
+  --color-l-rule:      #e0d9c0;
+  --color-l-rule-2:    #cfcfde; /* ← Selection */
+  --color-l-ink:       #1f1f1f; /* ← Foreground */
+  --color-l-ink-2:     #3d3a30;
+  --color-l-muted:     #6c664b; /* ← Comment claro */
+  --color-l-faint:     #9a9276;
+
+  /* ---- Acento — Cyan ------------------------------------
+     Uso escasso e com um significado só: "isto importa /
+     isto está vivo". Opt-in, foco, seleção, item ativo da
+     navegação. Nada além. */
+  --color-accent:       #8be9fd; /* ← Cyan escuro */
+  --color-accent-light: #036a96; /* ← Cyan claro */
+  --color-accent-ink:   #191a21; /* texto sobre o acento */
+
+  /* ---- Vermelho — a única outra cor com licença no cromo
+     Exclusivo de falha. Não usar para aviso nem destaque: se
+     vermelho aparecer em algo que não falhou, perde o
+     significado na tabela. */
+  --color-fail:       #ff5555; /* ← Red escuro */
+  --color-fail-light: #cb3a2a; /* ← Red claro */
+
+  /* ---- Acentos de gráfico -------------------------------
+     PROIBIDOS no cromo. Existem porque distribuição de
+     Desfecho e volume por hora precisam de distinção
+     categórica de verdade. */
+  --color-chart-1: #8be9fd;  --color-chart-1-light: #036a96;
+  --color-chart-2: #50fa7b;  --color-chart-2-light: #14710a;
+  --color-chart-3: #ffb86c;  --color-chart-3-light: #a34d14;
+  --color-chart-4: #ff79c6;  --color-chart-4-light: #a3144d;
+  --color-chart-5: #bd93f9;  --color-chart-5-light: #644ac9;
+  --color-chart-6: #f1fa8c;  --color-chart-6-light: #846e15;
+
+  /* ---- Tipografia --------------------------------------
+     Um grotesco para interface, um mono para identificador.
+     Requisito não negociável: ALGARISMO TABULAR na família de
+     interface — o dígito não pode pular quando o monitor ao
+     vivo atualiza a cada segundo. */
+  --font-sans: /* TODO: grotesco da marca */ "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  /* Saltos largos: suíço faz hierarquia por tamanho e peso,
+     não por cor. */
+  --text-2xs:  0.6875rem; /* 11px — rótulo em caixa alta */
+  --text-xs:   0.75rem;   /* 12px — dado em tabela densa */
+  --text-sm:   0.8125rem; /* 13px — corpo de interface */
+  --text-base: 0.9375rem; /* 15px */
+  --text-lg:   1.25rem;
+  --text-xl:   1.75rem;
+  --text-2xl:  2.5rem;
+  --text-3xl:  3.5rem;    /* número grande do monitor ao vivo */
+
+  --tracking-label: 0.08em;
+
+  /* ---- Espaço — escala apertada -------------------------
+     Densidade é identidade aqui (ADR-0008). Passos de 4px. */
+  --spacing-0: 0;
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+  --spacing-12: 3rem;
+
+  /* ---- Raio — reto ------------------------------------- */
+  --radius-none: 0;
+  --radius-xs:   2px; /* teto absoluto */
+
+  /* ---- Régua -------------------------------------------
+     Separação é feita por régua e por espaço. NÃO existem
+     tokens de sombra neste arquivo, e a omissão é deliberada:
+     sombra é o vocabulário do registro que rejeitamos. */
+  --border-hair:   1px;
+  --border-strong: 2px;
+}
+
+/* ============================================================
+   Camada semântica — escuro por padrão
+   O operador acompanha o monitor ao vivo por horas.
+   ============================================================ */
+:root {
+  --bg-base:    var(--color-n-950);
+  --bg-surface: var(--color-n-900);
+  --bg-raised:  var(--color-n-850);
+  --bg-hover:   var(--color-n-800);
+
+  --ink-primary: var(--color-n-100); /* 14,8:1 AAA */
+  --ink-body:    var(--color-n-300); /*  7,9:1 AAA */
+  /* n-400, não n-500: a cor Comment do Dracula dá 3,36:1 sobre
+     este fundo e falha AA para texto normal. Ela é discreta de
+     propósito em realce de sintaxe, onde comentário deve
+     recuar; rótulo de 11px em painel não pode recuar. */
+  --ink-muted:   var(--color-n-400); /*  5,0:1 AA  */
+  --ink-faint:   var(--color-n-500); /*  3,4:1 — só decorativo, nunca texto */
+
+  /* No escuro a régua precisa de contraste real ou desaparece
+     — e ela é o elemento estrutural deste registro. */
+  --rule:        var(--color-n-800);
+  --rule-strong: var(--color-n-700);
+
+  --accent:      var(--color-accent);
+  --accent-ink:  var(--color-accent-ink);
+  --fail:        var(--color-fail);
+
+  /* ---- Estado de Ligação ------------------------------
+     Codificado por PESO e RÓTULO. Cor é reforço escasso: só
+     opt-in e falhou recebem tinta. Ver ADR-0008. */
+     Três pesos de cinza, todos AA, mais duas cores. A distinção
+     entre os cinzas vem do RÓTULO, não do tom — que é
+     exatamente como este registro funciona. */
+  --state-atendida:  var(--color-n-100); /* mais claro, peso alto */
+  --state-tocando:   var(--color-n-300); /* em curso, sem significado ainda */
+  --state-maquina:   var(--color-n-400);
+  --state-bloqueado: var(--color-n-400); /* mesmo tom de máquina; o rótulo distingue */
+  --state-falhou:    var(--color-fail);
+  --state-opt-in:    var(--color-accent); /* o ponto do produto */
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg-base:    var(--color-l-bg);
+    --bg-surface: var(--color-l-surface);
+    --bg-raised:  var(--color-l-raised);
+    --bg-hover:   var(--color-l-raised);
+
+    --ink-primary: var(--color-l-ink);
+    --ink-body:    var(--color-l-ink-2);
+    --ink-muted:   var(--color-l-muted);
+    --ink-faint:   var(--color-l-faint);
+
+    --rule:        var(--color-l-rule);
+    --rule-strong: var(--color-l-rule-2);
+
+    --accent:      var(--color-accent-light);
+    --accent-ink:  var(--color-l-bg);
+    --fail:        var(--color-fail-light);
+
+    --state-tocando:   var(--color-l-muted);
+    --state-atendida:  var(--color-l-ink);
+    --state-maquina:   var(--color-l-muted);
+    --state-bloqueado: var(--color-l-faint);
+    --state-falhou:    var(--color-fail-light);
+    --state-opt-in:    var(--color-accent-light);
+  }
+}
+
+:root[data-theme="light"] {
+  --bg-base:    var(--color-l-bg);
+  --bg-surface: var(--color-l-surface);
+  --bg-raised:  var(--color-l-raised);
+  --bg-hover:   var(--color-l-raised);
+
+  --ink-primary: var(--color-l-ink);
+  --ink-body:    var(--color-l-ink-2);
+  --ink-muted:   var(--color-l-muted);
+  --ink-faint:   var(--color-l-faint);
+
+  --rule:        var(--color-l-rule);
+  --rule-strong: var(--color-l-rule-2);
+
+  --accent:      var(--color-accent-light);
+  --accent-ink:  var(--color-l-bg);
+  --fail:        var(--color-fail-light);
+
+  --state-tocando:   var(--color-l-muted);
+  --state-atendida:  var(--color-l-ink);
+  --state-maquina:   var(--color-l-muted);
+  --state-bloqueado: var(--color-l-faint);
+  --state-falhou:    var(--color-fail-light);
+  --state-opt-in:    var(--color-accent-light);
+}
+
+/* ============================================================
+   Base obrigatória
+   ============================================================ */
+:root {
+  color-scheme: dark light;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--ink-body);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  /* Requisito do domínio, não preferência: o produto é feito de
+     números que atualizam ao vivo. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Telefone, código SIP, ChannelId, duração. */
+.identificador {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "zero" 1; /* zero cortado: 0 contra O */
+}
+
+/* Rótulo em caixa alta é estrutural neste registro. */
+.rotulo {
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
