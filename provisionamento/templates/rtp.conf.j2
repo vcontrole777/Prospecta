@@ -1,0 +1,12 @@
+; Gerado pelo Ansible.
+;
+; A faixa precisa caber os {{ canais_contratados }} canais contratados com
+; folga — cada chamada consome um par de portas.
+;
+; É esta faixa que torna container inviável para o Asterisk: publicar
+; milhares de portas UDP é patológico, e a saída padrão (rede de host)
+; descarta o isolamento que motivava containerizar. Ver #23.
+
+[general]
+rtpstart={{ rtp_porta_inicio }}
+rtpend={{ rtp_porta_fim }}

@@ -1,0 +1,323 @@
+---
+- name: Provisionar e convergir uma instância do Prospecta
+  hosts: todos
+  become: true
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    - name: Base
+      tags: [base]
+      block:
+
+        - name: Pacotes de base
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - curl
+              - gnupg
+              - nginx
+              - sox
+              - ffmpeg
+            state: present
+            update_cache: true
+
+        - name: Usuário da aplicação
+          ansible.builtin.user:
+            name: "{{ app_usuario }}"
+            system: true
+            shell: /usr/sbin/nologin
+            home: "{{ app_dir }}"
+            create_home: false
+
+        - name: Diretório de chaves de repositório
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: "0755"
+
+    # ------------------------------------------------------------------
+    # PHP vem do PPA ondrej/php, NÃO do Sury.
+    # Sury é o repositório Debian; no Ubuntu o equivalente do mesmo
+    # mantenedor (Ondřej Surý) é este PPA. O ticket #23 e o ADR-0004
+    # diziam "Sury" e foram corrigidos.
+    - name: PHP {{ php_versao }}
+      tags: [php]
+      block:
+
+        - name: Repositório do PHP
+          ansible.builtin.apt_repository:
+            repo: "ppa:ondrej/php"
+            state: present
+            update_cache: true
+
+        - name: Pacotes do PHP
+          ansible.builtin.apt:
+            name: "{{ php_extensoes | map('regex_replace', '^', 'php' + php_versao + '-') | list }}"
+            state: present
+
+    # ------------------------------------------------------------------
+    # O Ubuntu 24.04 empacota MySQL 8.0, que saiu de suporte upstream.
+    # 8.4 vem do repositório da Oracle.
+    #
+    # VERIFICADO em execução real. Dois pontos de atrito descobertos:
+    #   - a chave -2023 EXPIROU (2025-10-22) e o apt recusa com EXPKEYSIG.
+    #     Ver mysql_chave_url e mysql_chave_expira em group_vars.
+    #   - o componente para noble é mysql-{{ mysql_serie }}-lts.
+    - name: MySQL {{ mysql_serie }}
+      tags: [mysql]
+      block:
+
+        - name: Chave do repositório do MySQL
+          ansible.builtin.get_url:
+            url: "{{ mysql_chave_url }}"
+            dest: /etc/apt/keyrings/mysql.asc
+            mode: "0644"
+            force: true   # a chave é substituída na renovação, não só criada
+
+        - name: Repositório do MySQL
+          ansible.builtin.apt_repository:
+            repo: >-
+              deb [signed-by=/etc/apt/keyrings/mysql.asc]
+              http://repo.mysql.com/apt/ubuntu
+              {{ ansible_distribution_release }} mysql-{{ mysql_serie }}-lts
+            filename: mysql
+            state: present
+            update_cache: true
+
+        - name: Servidor MySQL
+          ansible.builtin.apt:
+            name: mysql-server
+            state: present
+
+        - name: MySQL habilitado
+          ansible.builtin.systemd:
+            name: mysql
+            enabled: true
+            state: started
+
+        - name: Banco da aplicação
+          ansible.builtin.command:
+            cmd: mysql --protocol=socket -e "CREATE DATABASE IF NOT EXISTS prospecta
+                 CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+          changed_when: false
+
+    # ------------------------------------------------------------------
+    # Artefato, não compilação por cliente: versão IDÊNTICA em todas as
+    # instâncias, provisionamento rápido, rollback trivial.
+    # Gere com build-asterisk.sh e publique.
+    - name: Asterisk {{ asterisk_versao }}
+      tags: [asterisk]
+      block:
+
+        - name: Baixar o pacote do Asterisk
+          ansible.builtin.get_url:
+            url: "{{ asterisk_url_artefato }}"
+            dest: "/tmp/asterisk_{{ asterisk_versao }}_amd64.deb"
+            mode: "0644"
+
+        - name: Instalar o Asterisk
+          ansible.builtin.apt:
+            deb: "/tmp/asterisk_{{ asterisk_versao }}_amd64.deb"
+            state: present
+
+        # VERIFICADO POR FALHA: o logger.conf que vem de `make samples` NÃO
+        # registra `verbose`, e é aí que o traço de `pjsip set logger`
+        # escreve. Sem isto, o diagnóstico de sinalização não existe em
+        # arquivo — só no console de quem estiver conectado na hora.
+        - name: logger.conf registra verbose
+          ansible.builtin.lineinfile:
+            path: /etc/asterisk/logger.conf
+            regexp: '^messages\.log =>'
+            line: "messages.log => notice,warning,error,verbose"
+          notify: Recarregar o logger
+
+        # VERIFICADO POR FALHA: `make samples` cria estes diretórios como
+        # root, e o Asterisk roda como asterisk. Resultado:
+        #   cdr_csv.c: Unable to open file ... Permission denied
+        # O CDR falha em silêncio no primeiro CDR gravado.
+        # VERIFICADO POR FALHA, DUAS VEZES. `make samples` cria estes
+        # diretórios como root e o Asterisk roda como asterisk:
+        #   - cdr-csv    -> "Unable to open file ... Permission denied"
+        #   - monitor    -> MixMonitor NÃO GRAVA, e falha em SILÊNCIO
+        #
+        # O segundo é grave: a gravação de chamada existe no v1 porque o
+        # falso positivo do AMD só é mensurável ouvindo. Uma permissão de
+        # diretório derrubaria o único jeito de medir isso, sem avisar.
+        - name: Diretórios de estado do Asterisk com dono correto
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            owner: asterisk
+            group: asterisk
+            mode: "0750"
+          loop:
+            - /var/log/asterisk/cdr-csv
+            - /var/log/asterisk/cdr-custom
+            - /var/log/asterisk/cel-custom
+            - /var/spool/asterisk/monitor
+            - /var/spool/asterisk/dictate
+            - /var/spool/asterisk/meetme
+
+        - name: Diretórios de áudio e gravação
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            owner: asterisk
+            group: asterisk
+            mode: "0750"
+          loop:
+            - "{{ audio_dir }}"
+            - "{{ gravacao_dir }}"
+
+        - name: Configuração do tronco
+          ansible.builtin.template:
+            src: templates/pjsip-tronco.conf.j2
+            dest: /etc/asterisk/pjsip.conf
+            owner: asterisk
+            group: asterisk
+            mode: "0640"
+          notify: Recarregar o pjsip
+
+        - name: Faixa de portas RTP
+          ansible.builtin.template:
+            src: templates/rtp.conf.j2
+            dest: /etc/asterisk/rtp.conf
+            owner: asterisk
+            group: asterisk
+            mode: "0640"
+          notify: Recarregar o RTP
+
+        - name: Asterisk habilitado
+          ansible.builtin.systemd:
+            name: asterisk
+            enabled: true
+            state: started
+
+    # ------------------------------------------------------------------
+    - name: Unidades do Prospecta
+      tags: [app]
+      block:
+
+        - name: Unidades do systemd
+          ansible.builtin.template:
+            src: "templates/{{ item }}.j2"
+            dest: "/etc/systemd/system/{{ item }}"
+            mode: "0644"
+          loop:
+            - prospecta-fastagi.socket
+            - prospecta-fastagi@.service
+            - prospecta-dialer.service
+            - prospecta-worker.service
+            - prospecta-expurgo.service
+            - prospecta-expurgo.timer
+          notify: Recarregar o systemd
+
+        - name: Socket do FastAGI habilitado
+          ansible.builtin.systemd:
+            name: prospecta-fastagi.socket
+            enabled: true
+            state: started
+            daemon_reload: true
+
+        # dialer e worker são serviços PERSISTENTES, não cron.
+        # O ADR-0005 trocou o ritmo para malha fechada, e taxa realimentada
+        # quer processo contínuo. Efeito colateral bom: o systemd garante
+        # instância única, então a trava de arquivo deixa de ser necessária.
+        - name: Serviços persistentes habilitados
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            enabled: true
+            state: started
+            daemon_reload: true
+          loop:
+            - prospecta-dialer.service
+            - prospecta-worker.service
+
+        - name: Temporizador de expurgo de gravação habilitado
+          ansible.builtin.systemd:
+            name: prospecta-expurgo.timer
+            enabled: true
+            state: started
+            daemon_reload: true
+
+    # ------------------------------------------------------------------
+    - name: Servidor web
+      tags: [web]
+      block:
+
+        - name: Site do nginx
+          ansible.builtin.template:
+            src: templates/nginx-prospecta.conf.j2
+            dest: /etc/nginx/sites-available/prospecta
+            mode: "0644"
+          notify: Recarregar o nginx
+
+        - name: Habilitar o site
+          ansible.builtin.file:
+            src: /etc/nginx/sites-available/prospecta
+            dest: /etc/nginx/sites-enabled/prospecta
+            state: link
+          notify: Recarregar o nginx
+
+        - name: Remover o site padrão
+          ansible.builtin.file:
+            path: /etc/nginx/sites-enabled/default
+            state: absent
+          notify: Recarregar o nginx
+
+    # ------------------------------------------------------------------
+    # PRÉ-REQUISITO: o DNS de {{ dominio }} tem que resolver para o IP
+    # desta máquina. A validação é por HTTP.
+    #
+    # Certificado válido não é conforto: a Meta RECUSA autoassinado, então
+    # sem isto o webhook do WhatsApp não pode ser cadastrado (#24).
+    #
+    # Se o DNS ainda não propagou: --skip-tags https, e volte depois.
+    - name: HTTPS
+      tags: [https]
+      block:
+
+        - name: Certbot
+          ansible.builtin.apt:
+            name:
+              - certbot
+              - python3-certbot-nginx
+            state: present
+
+        - name: Emitir o certificado
+          ansible.builtin.command:
+            cmd: >-
+              certbot --nginx --non-interactive --agree-tos
+              -m {{ email_certificado }} -d {{ dominio }}
+            creates: "/etc/letsencrypt/live/{{ dominio }}/fullchain.pem"
+
+  handlers:
+
+    - name: Recarregar o systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    # VERIFICADO POR FALHA: `core reload` NÃO reaplica objeto de configuração
+    # do pjsip. O qualify_frequency novo ficou como NonQual e o endpoint como
+    # Unavailable até rodar `pjsip reload` explicitamente. Handler genérico de
+    # reload é armadilha: cada subsistema tem o seu.
+    - name: Recarregar o logger
+      ansible.builtin.command:
+        cmd: asterisk -rx "logger reload"
+      changed_when: true
+
+    - name: Recarregar o pjsip
+      ansible.builtin.command:
+        cmd: asterisk -rx "pjsip reload"
+      changed_when: true
+
+    - name: Recarregar o RTP
+      ansible.builtin.command:
+        cmd: asterisk -rx "module reload res_rtp_asterisk.so"
+      changed_when: true
+
+    - name: Recarregar o nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded

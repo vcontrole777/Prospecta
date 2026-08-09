@@ -1,0 +1,21 @@
+[Unit]
+Description=Prospecta worker (Ações e eventos de WhatsApp)
+Documentation=https://github.com/vcontrole777/Prospecta/issues/24
+After=mysql.service
+Wants=mysql.service
+
+[Service]
+# Consome a tabela `acao` e a tabela `evento_whatsapp`.
+#
+# Existe justamente para que NENHUMA chamada HTTP aconteça dentro da
+# Ligação (ADR-0002), e nenhum processamento aconteça dentro do webhook
+# (o espelho de entrada da mesma regra).
+ExecStart=/usr/bin/php{{ php_versao }} {{ app_dir }}/bin/worker.php
+Restart=always
+RestartSec=5
+
+User={{ app_usuario }}
+Group={{ app_usuario }}
+
+[Install]
+WantedBy=multi-user.target

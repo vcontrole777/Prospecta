@@ -1,0 +1,16 @@
+[Unit]
+Description=Prospecta — expurgo de gravação
+
+[Service]
+Type=oneshot
+
+# Apaga o ARQUIVO, nunca a linha da Ligação.
+#
+# A Ligação aconteceu mesmo que a gravação não exista mais. Perder a linha
+# junto com o arquivo seria perder o CDR por causa de política de disco.
+# A coluna de caminho aceita NULL exatamente para isto.
+ExecStart=/usr/bin/find {{ gravacao_dir }} -type f -mtime +{{ gravacao_retencao_dias }} -delete
+ExecStartPost=/usr/bin/php{{ php_versao }} {{ app_dir }}/bin/expurgo-marcar.php
+
+User={{ app_usuario }}
+Group={{ app_usuario }}

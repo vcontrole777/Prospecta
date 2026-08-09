@@ -1,0 +1,84 @@
+; Gerado pelo Ansible — não edite na máquina, edite host_vars e reexecute.
+;
+; O painel NÃO valida esta configuração (decisão registrada no mapa).
+; O operador digita certo.
+
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0
+
+; ------------------------------------------------------------------
+; Tronco de saída: {{ tronco.nome }}
+;
+; Prefixo técnico {{ tronco.tech_prefix }} é SELEÇÃO DE CAPACIDADE, não
+; detalhe: na IDT, CallerID e DTMF só funcionam na rota Platinum. Em rota
+; mais barata os dois falham em SILÊNCIO — e o produto inteiro é
+; "escute e digite uma tecla".
+; ------------------------------------------------------------------
+
+[{{ tronco.nome }}]
+type=endpoint
+context=prospecta-entrada
+transport=transport-udp
+aors={{ tronco.nome }}
+outbound_auth={{ tronco.nome }}-auth
+{% if tronco.from_user is defined and tronco.from_user %}
+; ============================================================
+; ⚠️  from_user SOBREPÕE o CALLERID(num) e torna TODA Regra de
+;     BINA INÓCUA. O painel mostra a BINA escolhida e a rota
+;     manda outra coisa — em silêncio, sem erro em log nenhum.
+;
+;     MEDIDO 2026-08-09: com from_user setado, o From do INVITE
+;     saiu com o valor dele, ignorando Set(CALLERID(num)=...).
+;     Removendo, o From passou a levar a BINA, e a rota ACEITOU.
+;
+;     Só preencha se o fornecedor EXIGIR — aceitando que BINA
+;     não funcionará neste tronco.
+; ============================================================
+from_user={{ tronco.from_user }}
+{% endif %}
+from_domain={{ tronco.from_domain }}
+
+; alaw/ulaw. Guardar os áudios em alaw casando com o tronco elimina
+; transcodificação na reprodução, deixando DSP só no AMD e no MixMonitor.
+disallow=all
+allow=alaw,ulaw
+
+; rfc4733: DTMF fora de banda. Em banda depende de codec e sobrevive mal
+; a transcodificação — e aqui DTMF é o produto.
+dtmf_mode=rfc4733
+
+; O Asterisk PRECISA estar no caminho da mídia: sem isso, AMD não tem
+; áudio para analisar e MixMonitor não tem o que gravar.
+direct_media=no
+
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=yes
+
+[{{ tronco.nome }}-auth]
+type=auth
+auth_type=userpass
+username={{ tronco.usuario }}
+password={{ tronco.senha }}
+
+[{{ tronco.nome }}]
+type=aor
+contact=sip:{{ tronco.host }}
+
+; OPTIONS periódico. Duas razões:
+;   1. prova que o SIP faz ida e volta pelo provedor de rede SEM gastar
+;      chamada — alguns provedores filtram 5060, e o sintoma seria INVITE
+;      sem resposta, indistinguível de erro de configuração
+;   2. `pjsip show aors` passa a mostrar Avail/Unavail, que é diagnóstico
+;      de graça no painel
+qualify_frequency=60
+qualify_timeout=3.0
+
+; Casamento de entrada por IP. Tronco autenticado só por lista de IP
+; dispensa as seções auth e registration acima — remova-as nesse caso.
+[{{ tronco.nome }}]
+type=identify
+endpoint={{ tronco.nome }}
+match={{ tronco.host }}

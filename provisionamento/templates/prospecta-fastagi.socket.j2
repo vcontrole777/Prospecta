@@ -1,0 +1,20 @@
+[Unit]
+Description=Prospecta FastAGI (socket)
+Documentation=https://github.com/vcontrole777/Prospecta/issues/11
+
+[Socket]
+ListenStream=127.0.0.1:{{ fastagi_porta }}
+Accept=yes
+
+# O PADRÃO do systemd é 64. Com {{ canais_contratados }} canais
+# contratados, o padrão recusaria conexão em silêncio — o sintoma não é
+# "erro no handler", é "algumas Ligações simplesmente não fazem nada".
+MaxConnections={{ fastagi_max_conexoes }}
+
+# Explícito em 0 porque TODAS as conexões vêm de 127.0.0.1 (o Asterisk
+# está na mesma máquina). Qualquer limite por origem se tornaria, na
+# prática, o teto real de chamadas simultâneas.
+MaxConnectionsPerSource=0
+
+[Install]
+WantedBy=sockets.target

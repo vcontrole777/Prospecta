@@ -1,0 +1,55 @@
+---
+# Versões e padrões — iguais em toda instância.
+# Mudar aqui e reexecutar o playbook é o mecanismo de atualização.
+
+php_versao: "8.4"
+mysql_serie: "8.4"          # 8.0 saiu de suporte upstream em 2026-04-21
+asterisk_versao: "22.10.1"  # LTS; piso 22.7.0 por causa de TechCause no DialEnd
+
+# Onde o pacote gerado por build-asterisk.sh está publicado.
+# Não versionamos o artefato neste repositório.
+asterisk_url_artefato: "https://ARTEFATOS.EXEMPLO/asterisk_{{ asterisk_versao }}_amd64.deb"
+
+# Chave do repositório do MySQL.
+#
+# A Oracle renova a expiração e republica com o ANO no nome, mantendo a
+# mesma impressão digital (BCA4 3417 C3B4 85DD 128E C6D4 B7B3 B788 A8D3 785C).
+#
+# VERIFICADO: a chave -2023 expirou em 2025-10-22 e o apt recusa o
+# repositório com EXPKEYSIG. A -2025 vale até 2027-10-23.
+#
+# Quando o provisionamento falhar com EXPKEYSIG, o conserto é subir o ano
+# aqui — não é comprometimento de chave.
+mysql_chave_url: https://repo.mysql.com/RPM-GPG-KEY-mysql-2025
+mysql_chave_expira: "2027-10-23"
+
+app_dir: /opt/prospecta
+app_usuario: prospecta
+
+audio_dir: /var/lib/asterisk/sounds/prospecta
+gravacao_dir: /var/spool/asterisk/gravacoes
+
+# Gravação: GSM é ~10x menor que WAV. 200 canais em WAV são 41 GB/dia
+# contra 4,3 GB/dia em GSM. "Gravar tudo" só é sustentável comprimido.
+gravacao_formato: gsm
+gravacao_retencao_dias: 30
+
+# FastAGI por ativação de socket do systemd.
+fastagi_porta: 4573
+fastagi_max_conexoes: 512   # o PADRÃO do systemd é 64 — ver comentário na unidade
+
+# Faixa de RTP. Dimensione para o número de canais contratados com folga.
+rtp_porta_inicio: 10000
+rtp_porta_fim: 20000
+
+php_extensoes:
+  - cli
+  - fpm
+  - mysql
+  - mbstring
+  - xml
+  - curl
+  - zip
+  - intl
+  - bcmath
+  - opcache

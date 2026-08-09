@@ -8,3 +8,8 @@
 # Material de referência de terceiros — analisado, não distribuído.
 # Os achados relevantes foram extraídos para os tickets #6, #11 e o mapa.
 magnusbilling/
+
+# Credencial de Tronco SIP por cliente — só o exemplo é versionado.
+provisionamento/inventario.yml
+provisionamento/host_vars/*.yml
+!provisionamento/host_vars/exemplo.yml

@@ -1,0 +1,55 @@
+# Gerado pelo Ansible.
+# O certbot acrescenta a escuta em 443 e o certificado ao rodar.
+
+server {
+    listen 80;
+    server_name {{ dominio }};
+
+    root {{ app_dir }}/public;
+    index index.php;
+
+    charset utf-8;
+    client_max_body_size 32M;   # importação de lista em CSV
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # Webhook do WhatsApp (#24).
+    #
+    # A Meta reentrega em não-200 E em lentidão, então o endpoint valida
+    # assinatura, grava em evento_whatsapp e devolve 200 — sem processar.
+    # É o espelho de entrada do ADR-0002.
+    #
+    # O timeout curto aqui é proposital: se a resposta demorar, é defeito
+    # nosso, e é melhor falhar rápido e ver no log do que arrastar.
+    location = /webhook/whatsapp {
+        try_files $uri /index.php?$query_string;
+        fastcgi_read_timeout 10s;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php{{ php_versao }}-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT $realpath_root;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+
+    # Gravação NUNCA é servida direto: o acesso passa pela aplicação, que
+    # autentica, e ela devolve X-Accel-Redirect apontando para cá.
+    #
+    # `internal` significa que esta location só é alcançável por redirecionamento
+    # interno — pedido direto do navegador recebe 404. É o que faz o nginx
+    # entregar o arquivo com eficiência SEM abrir mão da autenticação.
+    #
+    # O nome do arquivo é derivado do id inteiro da Ligação (ADR-0003), então
+    # não há caminho externo entrando aqui.
+    location /gravacao-interna/ {
+        internal;
+        alias {{ gravacao_dir }}/;
+    }
+}

@@ -1,0 +1,20 @@
+---
+# Linha de 80 é curta demais para template Jinja em unidade do systemd
+# e para URL de repositório. 120 é o teto real.
+extends: default
+
+# host_vars de cliente carrega credencial de Tronco SIP e é gerado a mão
+# na máquina. O lint não deve inspecionar arquivo com segredo, nem falhar
+# por espaço em branco num arquivo que nunca entra no git.
+ignore: |
+  host_vars/*.yml
+  !host_vars/exemplo.yml
+  inventario.yml
+
+rules:
+  line-length:
+    max: 120
+  truthy:
+    allowed-values: ["true", "false"]
+  comments:
+    min-spaces-from-content: 1

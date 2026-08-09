@@ -1,0 +1,31 @@
+---
+# Por cliente. Copie para host_vars/<nome-no-inventario>.yml
+#
+# ATENÇÃO: arquivo com credencial real NÃO entra no git.
+# Só este exemplo é versionado. Use ansible-vault ou mantenha fora do repositório.
+
+# O DNS tem que resolver para o IP da máquina ANTES de rodar o playbook:
+# o certificado é emitido por validação HTTP, e sem certificado válido
+# o webhook do WhatsApp não pode ser cadastrado (a Meta recusa autoassinado).
+dominio: cliente-x.exemplo.com
+email_certificado: ops@exemplo.com
+
+# Quantidade de canais contratada. É o limite do produto, e o dialer respeita.
+canais_contratados: 60
+
+# Tronco SIP. O painel NÃO valida esta configuração — decisão registrada no mapa.
+# O operador digita certo.
+tronco:
+  nome: idt
+  host: 203.0.113.20   # endereço real do proxy do fornecedor vai no seu host_vars
+  usuario: SUBSTITUA
+  senha: SUBSTITUA
+  # from_user DESLIGADO de propósito. Ele sobrepõe o CALLERID(num) e
+  # torna toda Regra de BINA inócua, em silêncio. Só preencha se o
+  # fornecedor exigir, aceitando que BINA não funcionará. Ver #22.
+  # from_user: SUBSTITUA
+  from_domain: SUBSTITUA
+  # Prefixo técnico é SELEÇÃO DE CAPACIDADE, não detalhe de configuração:
+  # na IDT, CallerID e DTMF só funcionam na rota Platinum (99901). Em rota
+  # mais barata os dois falham em silêncio — e o produto inteiro é "digite 2".
+  tech_prefix: "99901"

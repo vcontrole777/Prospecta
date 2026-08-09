@@ -1,0 +1,25 @@
+[Unit]
+Description=Prospecta dialer
+Documentation=https://github.com/vcontrole777/Prospecta/issues/11
+After=mysql.service asterisk.service
+Wants=mysql.service asterisk.service
+
+[Service]
+# Serviço PERSISTENTE, não cron.
+# O ADR-0005 trocou o ritmo de malha aberta (taxa calculada, distribuída
+# por minuto) para malha FECHADA: conta canal livre real a cada volta.
+# Taxa realimentada quer processo contínuo.
+#
+# Efeito colateral: o systemd garante instância única, então a trava de
+# arquivo que um cron exigiria deixa de ser necessária.
+ExecStart=/usr/bin/php{{ php_versao }} {{ app_dir }}/bin/dialer.php
+Restart=always
+RestartSec=5
+
+User={{ app_usuario }}
+Group={{ app_usuario }}
+
+Environment=PROSPECTA_CANAIS={{ canais_contratados }}
+
+[Install]
+WantedBy=multi-user.target

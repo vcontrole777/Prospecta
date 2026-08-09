@@ -1,0 +1,8 @@
+---
+# Copie para inventario.yml e edite.
+# Uma entrada por cliente. Cada cliente é uma VPS.
+todos:
+  hosts:
+    cliente-x:
+      ansible_host: 203.0.113.10
+      ansible_user: root

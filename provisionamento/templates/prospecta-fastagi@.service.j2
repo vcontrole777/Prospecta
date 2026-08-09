@@ -1,0 +1,24 @@
+[Unit]
+Description=Prospecta FastAGI (uma Ligação)
+
+[Service]
+Type=oneshot
+
+# Bootstrap MÍNIMO, conforme ADR-0001: script PHP puro com autoload e PDO.
+# NÃO é comando do framework — framework completo custa ~35 MB de RSS por
+# processo, o que em 200 canais são 7 GB só de handlers.
+ExecStart=/usr/bin/php{{ php_versao }} {{ app_dir }}/bin/fastagi.php
+
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+
+User={{ app_usuario }}
+Group={{ app_usuario }}
+
+LimitNOFILE=65535
+
+# Um processo por Ligação: defeito no tratamento de um Lead derruba uma
+# chamada, não as {{ canais_contratados }}. É a propriedade que um módulo
+# dentro do PBX perderia (ADR-0004).
+TimeoutStopSec=15
