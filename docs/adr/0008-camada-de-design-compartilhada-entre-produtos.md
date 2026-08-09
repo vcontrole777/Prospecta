@@ -36,7 +36,7 @@ A disciplina é a mesma do ADR-0006 por um motivo análogo: a classe compartilha
 
 - A tela de chamadas online é o ponto duro, e é comum à família: `wire:poll` de 1 s sobre 200 Ligações ativas re-renderiza 200 linhas por segundo. A solução — componente estreito que devolve só o que mudou, ou SSE se o polling não segurar — deve ser decidida pensando nos três produtos e resolvida uma vez. Resolver três vezes, diferente em cada um, é a divergência que o MagnusBilling documenta com as duas classes `SearchTariff`.
 - Componentes que nomeiam conceito de domínio usam o termo do `CONTEXT.md`. Um badge chamado `<x-status-ligacao>` carrega o glossário para dentro da interface.
-- **Kit pronto está descartado por decisão do dono do produto:** o visual não pode ser genérico. Isso exclui Flux e equivalentes, inclusive para a camada genérica — adotar o kit no botão e no input já entrega o registro visual do kit.
+- **REVERTIDO — o kit pronto entra: adotamos Flux.** Ver a seção "Reversão sobre kit pronto" abaixo.
 
 ## O que "não genérico" significa aqui
 
@@ -46,6 +46,34 @@ Quatro escolhas carregam a identidade, e nenhuma delas vem de biblioteca:
 2. **Algarismo tabular em todo dado numérico** (`font-variant-numeric: tabular-nums`), porque o dígito não pode pular quando o monitor ao vivo atualiza. Mais uma família mono ou semi-mono nos identificadores — telefone, código SIP, `ChannelId`.
 3. **Densidade deliberada.** O produto é dado denso por natureza (CDR, monitor de canais); kits são espaçosos porque servem app de marketing. Denso e calmo é o registro correto e é funcionalmente melhor aqui.
 4. **Modo escuro como padrão, claro como alternativa.** O operador acompanha o monitor ao vivo por horas.
+
+## Reversão sobre kit pronto — adotamos Flux
+
+**Posição anterior:** kit pronto descartado, porque "adotar o kit no botão e no input já entrega o registro visual do kit".
+
+**Por que estava errada:** aquilo tratava "não quero visual genérico" como se implicasse construir tudo. Mas a identidade do produto não está nos componentes que um kit entrega. Está em quatro lugares, e três deles são nossos de qualquer forma:
+
+| Onde a identidade mora | Quem constrói |
+|---|---|
+| Régua em vez de sombra, canto reto, densidade | tokens + camada de override |
+| Estado por **peso e rótulo**, cor escassa | nosso |
+| Algarismo tabular, zero cortado | tokens |
+| Badge de estado de Ligação, duração, código SIP, telefone formatado | **nosso, sempre** |
+
+O que o Flux entrega — formulário, modal, dropdown, tabela com ordenação, paleta de comandos — é o 80% onde o tempo vai e onde a identidade **não** está. Construir isso do zero seriam semanas e uma superfície de manutenção permanente, contra a preferência declarada de escopo mínimo.
+
+**Decisão:** Flux para a camada genérica, nossa camada de override impondo o registro, e o vocabulário de telefonia construído por nós.
+
+### Onde o Flux briga com o registro, e por que é barato
+
+Kit moderno usa **canto arredondado e sombra** — exatamente as duas coisas que o registro suíço rejeita. Mas são **duas propriedades num lugar só**, override global, não briga componente por componente. Densidade sai da escala de espaço, que já está nos tokens.
+
+É por isso que a ausência de tokens de sombra neste arquivo deixa de ser só higiene e passa a ser carga: é a camada de override que impede a sombra do kit de voltar.
+
+### Duas coisas a confirmar, que não bloqueiam a decisão
+
+1. **O Flux aceita a nossa paleta?** Se ele resolve cor por variável CSS, os tokens plugam. Se usa classe utilitária fixa, retematizar custa mais — e a nossa espinha neutra tem viés roxo, não é a neutra padrão de kit.
+2. **A licença cobre N instâncias autohospedadas?** O produto é vendido com uma VPS por cliente. Confirmar por escrito antes de comprar, não depois de dez clientes.
 
 ## Registro e paleta
 
