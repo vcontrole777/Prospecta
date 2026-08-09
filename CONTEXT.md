@@ -34,6 +34,13 @@ _Avoid_: envio, mensagem, notificação
 A Ação de avisar o dono da Campanha com o resultado de uma captura. Distinta do Disparo, que vai para o Lead.
 _Avoid_: alerta, aviso, disparo
 
+**Conversa**:
+A troca de mensagens de WhatsApp entre o número do dono da Campanha e o número do Lead, com a janela de 24 h que o
+toque no botão do template abre. É **por número, não por Campanha** — o WhatsApp não sabe das nossas Campanhas, então
+o mesmo Lead em duas Campanhas tem uma Conversa só.
+Mensagens individuais não têm termo próprio: numa interface de conversa ninguém rotula mensagem individual.
+_Avoid_: chat, thread, atendimento, e **"mensagem"** para se referir a um item — Mensagem é o áudio da Campanha
+
 ### Campanha
 
 **Campanha**:
@@ -57,7 +64,8 @@ O fluxo que o Lead percorre depois de atender: ouve a Mensagem e responde.
 _Avoid_: IVR, menu, árvore
 
 **Mensagem**:
-O áudio principal da Campanha, tocado assim que o Lead atende.
+O áudio principal da Campanha, tocado assim que o Lead atende. **Sempre áudio** — nunca uma mensagem de WhatsApp
+ou SMS, que são Disparo, e nunca um item de Conversa.
 _Avoid_: locução, gravação, prompt
 
 **Áudio de confirmação**:
@@ -87,8 +95,17 @@ A visão das Ligações pelos seus dados técnicos — horários, duração, con
 _Avoid_: log de chamada, histórico
 
 **BINA**:
-O número exibido para o Lead quando o telefone toca.
+O número exibido para o Lead quando o telefone toca. Escolhida por uma Regra de BINA.
 _Avoid_: caller ID, identificador, origem
+
+**Regra de BINA**:
+Como a Campanha escolhe a BINA de cada Ligação. Quatro: `unica` (sempre `campanha.bina`),
+`lista` (sorteia do pool entre as que casam o DDD do Lead), `espelho` (telefone do Lead com os
+4 últimos dígitos trocados) e `espelho_fixo` (DDD do Lead mais um fixo gerado).
+A BINA registrada numa Ligação é a **solicitada**, não a entregue — o fornecedor pode
+substituí-la e não temos como saber.
+_Avoid_: BINA inteligente (bom nome de recurso, nome ruim de coluna), rotação de callerid,
+e **"fixa"** para dizer "não muda" — em telefonia "fixo" é telefone fixo, por isso `unica`
 
 **Tronco SIP**:
 O caminho pelo qual as Ligações saem para a operadora.
