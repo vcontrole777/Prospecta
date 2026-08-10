@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire;
 
+use App\Audio\Alaw;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
@@ -65,6 +66,18 @@ final class Campanhas extends Component
 
         if (($c['audio_mensagem_id'] ?? null) === null) {
             $faltas[] = 'áudio da mensagem não escolhido — a chamada sairia muda';
+        } else {
+            // 🔴 A LINHA NO BANCO NÃO É PROVA de que o arquivo existe e serve.
+            //
+            // O audios/README.md exige verificação na ATIVAÇÃO, com causa nomeada, e
+            // não só no cadastro: entre cadastrar e iniciar, o arquivo pode ter sido
+            // removido do disco, restaurado de backup errado ou sobrescrito. O
+            // sintoma seria `PLAYBACKSTATUS=FAILED` com o dialplan CONTINUANDO —
+            // chamada muda, contada como atendida, sem erro visível.
+            $falta = $this->conferirAudio(self::inteiro($c['audio_mensagem_id']));
+            if ($falta !== null) {
+                $faltas[] = $falta;
+            }
         }
 
         if (($c['canal_opt_in'] ?? null) === 'whatsapp' && ($c['template_nome'] ?? null) === null) {
@@ -88,6 +101,53 @@ final class Campanhas extends Component
             ]);
 
         session()->flash('recado', 'Campanha no ar.');
+    }
+
+    /**
+     * Confere o áudio no disco. `null` quando está tudo certo; a falta descrita
+     * quando não.
+     *
+     * As duas causas são as que o audios/README.md nomeia:
+     *
+     * · `AUDIO_MISSING` — a linha existe e o arquivo não
+     * · `AUDIO_INCOMPATIBLE` — o arquivo existe e o tamanho não corresponde à
+     *   duração gravada. A 8 kHz mono A-law são 8000 bytes por segundo, exatos, e
+     *   num formato sem cabeçalho essa é a única verificação que existe. Pega
+     *   arquivo truncado e arquivo trocado por outro em formato diferente.
+     */
+    private function conferirAudio(int $audioId): ?string
+    {
+        $linha = DB::table('audio')->where('id', $audioId)->first(['nome', 'arquivo', 'duracao_seg']);
+        if ($linha === null) {
+            return 'o áudio da mensagem não existe mais no cadastro (AUDIO_MISSING)';
+        }
+
+        $a = (array) $linha;
+        $nome = self::texto($a['nome'] ?? null);
+        $arquivo = self::texto($a['arquivo'] ?? null);
+
+        $diretorio = self::texto(config('prospecta.audio_path'));
+        $caminho = $diretorio . '/' . $arquivo;
+
+        if ($arquivo === '' || ! is_file($caminho)) {
+            return sprintf('o arquivo do áudio "%s" não está no disco (AUDIO_MISSING)', $nome);
+        }
+
+        $bytes = (int) filesize($caminho);
+        $duracao = self::inteiro($a['duracao_seg'] ?? null);
+
+        // Tolerância de 1 s: `duracao_seg` é inteiro arredondado para cima no
+        // cadastro, então a diferença legítima é sempre menor que um segundo.
+        if ($duracao > 0 && ! (new Alaw())->tamanhoConfere($bytes, (float) $duracao, 1.0 / $duracao)) {
+            return sprintf(
+                'o arquivo do áudio "%s" tem %d bytes, incompatível com %d s a 8 kHz mono (AUDIO_INCOMPATIBLE)',
+                $nome,
+                $bytes,
+                $duracao,
+            );
+        }
+
+        return null;
     }
 
     /**

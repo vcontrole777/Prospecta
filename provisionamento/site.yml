@@ -221,23 +221,38 @@
         # instância sem os áudios de sistema não roda Campanha.
         - name: Instalar os áudios de sistema
           ansible.builtin.copy:
-            src: "../audios/{{ item }}.alaw"
-            dest: "{{ audio_dir }}/{{ item }}.alaw"
+            src: "../audios/{{ item.nome }}.alaw"
+            dest: "{{ audio_dir }}/{{ item.nome }}.alaw"
             owner: asterisk
             group: asterisk
             mode: "0640"
           loop: "{{ audios_sistema }}"
+          loop_control:
+            label: "{{ item.nome }}"
 
-        - name: Conferir formato dos áudios de sistema
-          ansible.builtin.command:
-            cmd: "soxi -c -r {{ audio_dir }}/{{ item }}.alaw"
-          register: fmt_audio
-          changed_when: false
+        # 🔴 Verificação por TAMANHO, não por `soxi`.
+        #
+        # A versão anterior rodava `soxi -c -r ...alaw` e era IMPOSSÍVEL de passar:
+        # `soxi` não consegue abrir um `.alaw` — em `soxi` a opção `-t` significa
+        # "mostre o tipo", não "assuma este tipo", então não há como informar o
+        # formato. E o motivo é mais fundo: arquivo raw não tem cabeçalho, logo não
+        # há nada dentro dele dizendo 8000 Hz. Ninguém tinha descoberto porque os
+        # arquivos ainda não existem — a task nunca rodou contra arquivo de verdade.
+        #
+        # O que verifica é o tamanho: a 8 kHz mono A-law, 8000 bytes = 1 segundo,
+        # exatos. Isso pega taxa e canal errados, que erram por FATORES (11× para
+        # 44,1 kHz estéreo), e de graça impõe o limite de duração da `abertura`.
+        - name: Conferir tamanho dos áudios de sistema
+          ansible.builtin.stat:
+            path: "{{ audio_dir }}/{{ item.nome }}.alaw"
+          register: st_audio
           loop: "{{ audios_sistema }}"
+          loop_control:
+            label: "{{ item.nome }}"
           failed_when: >-
-            fmt_audio.rc != 0
-            or '1' not in fmt_audio.stdout_lines
-            or '8000' not in fmt_audio.stdout_lines
+            not st_audio.stat.exists
+            or st_audio.stat.size == 0
+            or st_audio.stat.size > item.max_bytes
 
         - name: Configuração do tronco
           ansible.builtin.template:

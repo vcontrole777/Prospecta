@@ -14,10 +14,12 @@ parameters:
         - app/Console
         - app/Worker
         - app/Importacao
+        - app/Audio
         - bin
         - tests/Unit/Dominio
         - tests/Unit/Fastagi
         - tests/Unit/Dialer
         - tests/Unit/Worker
         - tests/Unit/Importacao
+        - tests/Unit/Audio
     treatPhpDocTypesAsCertain: true

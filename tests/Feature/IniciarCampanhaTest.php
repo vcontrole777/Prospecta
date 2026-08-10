@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\Test;
+use Tests\CriaAudio;
 use Tests\TestCase;
 
 /**
@@ -19,6 +20,7 @@ use Tests\TestCase;
  */
 final class IniciarCampanhaTest extends TestCase
 {
+    use CriaAudio;
     use RefreshDatabase;
 
     private int $audio;
@@ -27,9 +29,14 @@ final class IniciarCampanhaTest extends TestCase
     {
         parent::setUp();
         $this->actingAs(User::factory()->create());
-        $this->audio = (int) DB::table('audio')->insertGetId([
-            'nome' => 'Mensagem', 'arquivo' => 'msg.alaw', 'ativo' => 1,
-        ]);
+        // COM arquivo no disco: a guarda de ativação confere o arquivo, não a linha.
+        $this->audio = $this->audioComArquivo();
+    }
+
+    protected function tearDown(): void
+    {
+        $this->limparAudios();
+        parent::tearDown();
     }
 
     /**

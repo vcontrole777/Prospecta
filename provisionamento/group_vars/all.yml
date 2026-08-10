@@ -57,9 +57,23 @@ audio_dir: /var/lib/asterisk/sounds/prospecta
 # ao Lead — voz de sistema no meio da Campanha soa como outra pessoa falando.
 # Formato obrigatório: 8000 Hz, mono, alaw (casa com o codec do tronco).
 # `abertura` tem limite duro de ~1 s: mais que isso invade a janela do AMD.
+# Áudios de sistema, com o TETO DE TAMANHO de cada um.
+#
+# 🔴 Tamanho é duração: a 8 kHz mono A-law, cada amostra é um byte, então
+# 8000 bytes = 1 segundo, exatos. Não há cabeçalho num `.alaw` — o tamanho é a
+# ÚNICA coisa verificável, e `soxi` não consegue nem abrir o arquivo. Ver
+# audios/README.md.
+#
+# 🔴 O teto da `abertura` é CARGA ESTRUTURAL, não higiene. Ela toca imediatamente
+# antes do `AMD()`, e áudio que invade a janela de análise faz o classificador
+# analisar o próprio som do sistema e devolver HUMAN para todo mundo — o AMD para
+# de classificar e toda chamada é tratada como atendida por pessoa. Verificado em
+# chamada real que ~1 s não invade.
 audios_sistema:
-  - abertura
-  - naoentendi
+  - nome: abertura
+    max_bytes: 12000      # 1,5 s — acima disso a análise do AMD é comprometida
+  - nome: naoentendi
+    max_bytes: 40000      # 5 s
 gravacao_dir: /var/spool/asterisk/gravacoes
 
 # Gravação: GSM é ~10x menor que WAV. 200 canais em WAV são 41 GB/dia

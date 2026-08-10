@@ -55,5 +55,14 @@ return [
     'gravacao_retencao_dias' => (int) $ler('PROSPECTA_GRAVACAO_RETENCAO_DIAS', '30'),
 
     // Prefixo de áudio como o Asterisk o resolve, relativo a sounds/.
-    'audio_dir' => $ler('PROSPECTA_AUDIO_DIR', 'prospecta'),
+    // 🔴 UMA variável de ambiente, DOIS valores derivados dela.
+    //
+    // O Asterisk resolve `Playback` relativo à raiz de sons dele, então o dialplan
+    // precisa de `prospecta/arquivo`; o painel precisa do caminho absoluto para
+    // escrever. Antes eram duas env separadas — `PROSPECTA_AUDIO_DIR` relativa e o
+    // absoluto codificado no playbook — e duas fontes para a mesma coisa divergem na
+    // primeira mudança: bastaria alguém renomear o diretório num lugar para o painel
+    // gravar onde o PBX não procura, sem erro nenhum aparecendo.
+    'audio_path' => rtrim($ler('PROSPECTA_AUDIO_PATH', '/var/lib/asterisk/sounds/prospecta'), '/'),
+    'audio_dir' => basename(rtrim($ler('PROSPECTA_AUDIO_PATH', '/var/lib/asterisk/sounds/prospecta'), '/')),
 ];

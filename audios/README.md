@@ -41,14 +41,44 @@ ativação da Campanha, com causa nomeada (`AUDIO_MISSING`,
 
 `alaw` casando com o codec do tronco elimina transcodificação na reprodução.
 
-Conferir com `soxi` depois de converter — `sox` e `ffmpeg` terminam com sucesso
-e parâmetro errado, e conversão que "deu certo" em estéreo 44,1 kHz é silêncio
-na chamada.
+### 🔴 O comando
 
 ```sh
-sox entrada.wav -r 8000 -c 1 -e a-law abertura.alaw
-soxi abertura.alaw     # confirmar: 8000 Hz, 1 canal
+sox entrada.wav -r 8000 -c 1 -t al abertura.alaw
 ```
+
+**`-t al` é obrigatório.** Sem ele o `sox` recusa com
+`no handler for file extension 'alaw'` — a extensão que o Asterisk usa não é uma
+extensão que o `sox` reconheça. O tipo dele para A-law cru é `al`.
+
+Uma versão anterior deste arquivo documentava o comando sem `-t al`, e com `-e
+a-law`. Aquele comando **não funciona**. Verificado nesta máquina.
+
+### 🔴 A verificação NÃO é com `soxi`
+
+`soxi` não consegue ler um `.alaw`, e não é questão de sintaxe: em `soxi` a opção
+`-t` significa *mostre o tipo*, não *assuma este tipo*. Não existe como informar o
+formato. E o motivo é mais fundo — **arquivo raw não tem cabeçalho**, então não há
+nada dentro dele dizendo 8000 Hz.
+
+O que verifica é o **tamanho**. A 8 kHz, mono, A-law, cada amostra é um byte:
+
+```
+8000 bytes por segundo, exatos
+```
+
+Medido: 2 s viraram 16000 bytes. A mesma conversão sem `-r 8000 -c 1` produziu
+176400 bytes — **11 vezes mais**. O tamanho delata taxa e canal errados, que é
+exatamente o modo de falha do qual este arquivo avisa.
+
+```sh
+sox entrada.wav -r 8000 -c 1 -t al abertura.alaw
+stat -c %s abertura.alaw     # dividir por 8000 = duração em segundos
+```
+
+Isso ganha um segundo uso que o `soxi` nunca teve: como o tamanho **é** a duração,
+verificar tamanho impõe o limite da `abertura` descrito acima — o limite que existe
+para não invadir a janela do AMD.
 
 ## Por que a verificação é obrigatória
 

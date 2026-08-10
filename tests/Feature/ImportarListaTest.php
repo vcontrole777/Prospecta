@@ -12,10 +12,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\Test;
+use Tests\CriaAudio;
 use Tests\TestCase;
 
 final class ImportarListaTest extends TestCase
 {
+    use CriaAudio;
     use RefreshDatabase;
 
     private int $campanha;
@@ -168,9 +170,7 @@ final class ImportarListaTest extends TestCase
     #[Test]
     public function depois_de_importar_a_campanha_pode_ir_ao_ar(): void
     {
-        $audio = DB::table('audio')->insertGetId([
-            'nome' => 'Mensagem', 'arquivo' => 'msg.alaw', 'ativo' => 1,
-        ]);
+        $audio = $this->audioComArquivo();
         DB::table('campanha')->where('id', $this->campanha)->update([
             'audio_mensagem_id' => $audio,
             'canal_opt_in' => 'whatsapp',
@@ -208,6 +208,12 @@ final class ImportarListaTest extends TestCase
     public function campanha_inexistente_da_404(): void
     {
         $this->get(route('campanha.importar', 99999))->assertNotFound();
+    }
+
+    protected function tearDown(): void
+    {
+        $this->limparAudios();
+        parent::tearDown();
     }
 
     /** Envia o CSV e devolve o componente já na etapa de conferência. */

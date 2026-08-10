@@ -44,6 +44,11 @@
 
         <x-slot:actions>
             <div class="flex items-center gap-4">
+                {{-- Navegação mínima: duas telas de instância. Sidebar entra
+                     quando houver mais, como diz o comentário do topo. --}}
+                <a href="{{ route('campanhas') }}" class="rotulo hover:text-primary">Campanhas</a>
+                <a href="{{ route('audios') }}" class="rotulo hover:text-primary">Áudios</a>
+
                 <span class="rotulo">{{ auth()->user()?->name }}</span>
 
                 {{-- Formulário e não link: saída por GET é acionável por qualquer

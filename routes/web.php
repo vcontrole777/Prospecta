@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Livewire\CampanhaForm;
+use App\Livewire\Audios;
 use App\Livewire\Campanhas;
 use App\Livewire\ImportarLista;
 use App\Livewire\Entrar;
@@ -37,6 +38,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/campanhas/nova', CampanhaForm::class)->name('campanha.nova');
     Route::get('/campanhas/{id}/editar', CampanhaForm::class)->name('campanha.editar');
     Route::get('/campanhas/{id}/importar', ImportarLista::class)->name('campanha.importar');
+
+    Route::get('/audios', Audios::class)->name('audios');
 
     /*
     | POST e não GET: saída por GET é acionável por qualquer imagem ou link de
