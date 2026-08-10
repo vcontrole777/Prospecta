@@ -25,7 +25,10 @@ use App\Dominio\Placeholder;
 use App\Fastagi\Registro;
 use App\Worker\DecisaoDeEnvio;
 use App\Worker\Envio;
+use App\Whatsapp\Leitura;
+use App\Whatsapp\OptOut;
 use App\Worker\FilaDeAcoes;
+use App\Worker\FilaDeEventos;
 use App\Worker\Interrupcao;
 use App\Seguranca\Cofre;
 use App\Worker\PoliticaDeEnvio;
@@ -45,6 +48,8 @@ $pdo = new PDO($conf['banco']['dsn'], $conf['banco']['usuario'], $conf['banco'][
 ]);
 
 $fila = new FilaDeAcoes($pdo, new Cofre($conf['app_key']));
+$eventos = new FilaDeEventos($pdo);
+$optOut = new OptOut();
 $politica = new PoliticaDeEnvio();
 $placeholder = new Placeholder();
 $transporte = new TransporteCurl($conf['timeout_http_seg']);
@@ -73,6 +78,75 @@ while (! $parada->pedida()) {
         $aguardandoCanalAvisado = $aguardando;
     }
 
+    // ---- eventos do webhook -------------------------------------------------
+    //
+    // 🔴 ANTES das Ações, e de propósito. O webhook grava e devolve 200 (ADR-0002,
+    // espelho de entrada); é aqui que o evento vira efeito. Vem primeiro porque um
+    // opt-out recém-chegado deve bloquear o telefone ANTES de a volta atual disparar
+    // mensagem para ele — a ordem inversa manda a mensagem e bloqueia depois.
+    //
+    // E não depende de integração cadastrada: processar evento é leitura do que já
+    // chegou, não envio.
+    $lote = $eventos->reivindicar($conf['eventos_por_volta']);
+
+    foreach ($lote as $ev) {
+        $payload = json_decode($ev['payload'], true);
+
+        if (! is_array($payload)) {
+            // Assinado e gravado, mas ilegível agora. Marca processado para não ficar
+            // em laço: reprocessar não vai fazer virar JSON.
+            $log->linha('evento_ilegivel', 'payload não é JSON', ['evento' => $ev['id']]);
+            $eventos->marcarProcessado($ev['id']);
+            continue;
+        }
+
+        $leitura = Leitura::de($payload);
+
+        foreach ($leitura->status as $st) {
+            if (! $eventos->aplicarStatus($st)) {
+                // Estado que a Meta acrescentou. Não é erro nosso, e some no silêncio
+                // se não for registrado — a documentação deles é a que muda mais.
+                $log->linha('estado_desconhecido', 'estado de entrega não mapeado', [
+                    'evento' => $ev['id'],
+                    'estado' => $st->estado,
+                    'wamid' => $st->wamid,
+                ]);
+            }
+        }
+
+        foreach ($leitura->entradas as $entrada) {
+            $telefone = $eventos->registrarEntrada($entrada);
+
+            if ($telefone !== '' && $optOut->pediu($entrada)) {
+                $eventos->bloquear($telefone);
+                $log->linha('opt_out', 'pedido de descadastro por mensagem', [
+                    'evento' => $ev['id'],
+                    'telefone' => $telefone,
+                    'botao' => $entrada->botao,
+                ]);
+            }
+        }
+
+        if ($leitura->camposIgnorados !== []) {
+            $log->linha('campo_ignorado', 'webhook trouxe campo que não tratamos', [
+                'evento' => $ev['id'],
+                'campos' => implode(',', $leitura->camposIgnorados),
+            ]);
+        }
+
+        // Marcado por ÚLTIMO: todo efeito acima é idempotente pelo esquema, então
+        // uma queda no meio reprocessa sem dano. Marcar antes perderia o evento.
+        $eventos->marcarProcessado($ev['id']);
+    }
+
+    if ($lote !== []) {
+        $log->linha('eventos', 'eventos do webhook processados', [
+            'quantos' => count($lote),
+            'restam' => $eventos->pendentes(),
+        ]);
+    }
+
+    // ---- Ações de disparo ---------------------------------------------------
     $cred = $fila->credenciaisWhatsapp();
 
     if ($cred === null) {

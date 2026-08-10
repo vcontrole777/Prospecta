@@ -53,6 +53,15 @@ return [
     // falha transitória e limitar o dano quando a ambiguidade acontece.
     'max_tentativas' => (int) $ler('PROSPECTA_WORKER_MAX_TENTATIVAS', '3'),
 
+    // Quantos eventos do webhook por volta.
+    //
+    // 🔴 Chave PRÓPRIA, não a do dialer. `PROSPECTA_EVENTOS_POR_VOLTA` existe e é do
+    // dialer, para eventos do AMI — coisa diferente, com volume diferente. Escrevi o
+    // laço usando a chave do dialer por descuido e o `$conf` vindo de `require` não
+    // acusa chave ausente: seria `null`, e `reivindicar(null)` pegaria zero evento
+    // para sempre, em silêncio.
+    'eventos_por_volta' => (int) $ler('PROSPECTA_WORKER_EVENTOS_POR_VOLTA', '100'),
+
     // Espera quando a fila está vazia.
     'intervalo_vazio_seg' => (int) $ler('PROSPECTA_WORKER_INTERVALO_SEG', '5'),
 
