@@ -12,8 +12,10 @@ parameters:
         - app/Dialer
         - app/Livewire
         - app/Console
+        - app/Worker
         - bin
         - tests/Unit/Dominio
         - tests/Unit/Fastagi
         - tests/Unit/Dialer
+        - tests/Unit/Worker
     treatPhpDocTypesAsCertain: true

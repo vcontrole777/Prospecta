@@ -518,6 +518,7 @@
             - prospecta-fastagi.socket
             - prospecta-fastagi@.service
             - prospecta-dialer.service
+            - prospecta-worker.service
             - prospecta-expurgo.service
             - prospecta-expurgo.timer
           notify: Recarregar o systemd
@@ -529,14 +530,17 @@
             state: started
             daemon_reload: true
 
-        # 🔴 `prospecta-worker.service` FORA daqui e da lista de templates.
+        # dialer e worker são serviços PERSISTENTES, não cron.
         #
-        # O `bin/worker.php` ainda não existe, e a unidade estava sendo instalada E
-        # habilitada — numa VPS nova ela entraria em ciclo de falha com "No such
-        # file or directory", ruído permanente no journal que esconde problema
-        # real. Volta junto com o script. Ver #26.
+        # O worker voltou para esta lista: ele estava fora porque `bin/worker.php`
+        # não existia e a unidade entraria em ciclo de falha com "No such file or
+        # directory". O script existe agora.
         #
-        # O dialer é serviço PERSISTENTE, não cron.
+        # O ADR-0005 trocou o ritmo da discagem para malha fechada, e taxa
+        # realimentada quer processo contínuo. Efeito colateral bom: o systemd
+        # garante instância única, então a trava de arquivo deixa de ser
+        # necessária — e no worker isso é o que permite reivindicar Ação sem
+        # travar linha de Lead.
         # O ADR-0005 trocou o ritmo para malha fechada, e taxa realimentada
         # quer processo contínuo. Efeito colateral bom: o systemd garante
         # instância única, então a trava de arquivo deixa de ser necessária.
@@ -548,6 +552,7 @@
             daemon_reload: true
           loop:
             - prospecta-dialer.service
+            - prospecta-worker.service
 
         - name: Temporizador de expurgo de gravação habilitado
           ansible.builtin.systemd:
