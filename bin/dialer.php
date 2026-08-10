@@ -77,6 +77,17 @@ $tentativaDaLigacao = [];
 $leadDaLigacao = [];
 /** @var array<int,int> $campanhaDaLigacao */
 $campanhaDaLigacao = [];
+/**
+ * Teto de tentativas em vigor no momento da ORIGINAÇÃO, por Ligação.
+ *
+ * 🔴 Guardado por Ligação, não lido na hora do evento. Duas razões: no evento só
+ * se tem o id da Campanha, e a Campanha pode ter sido editada enquanto a chamada
+ * estava em voo — usar o valor novo decidiria a aposentadoria deste Lead por uma
+ * regra que não existia quando ele foi discado.
+ *
+ * @var array<int,int> $maxTentativasDaLigacao
+ */
+$maxTentativasDaLigacao = [];
 
 $rodando = true;
 foreach ([SIGTERM, SIGINT] as $sinal) {
@@ -159,7 +170,22 @@ while ($rodando) {
             )->execute(['d' => $d->desfecho, 'id' => $lig]);
         }
 
-        $fila->aplicar($leadDaLigacao[$lig], $d, $conf['max_tentativas_padrao'], $tentativaDaLigacao[$lig] ?? 1);
+        // 🔴 O teto vem da CAMPANHA, não da configuração global.
+        //
+        // Aqui estava `$conf['max_tentativas_padrao']`, e a coluna
+        // `campanha.max_tentativas` era lida por `campanhasAtivas()` e jogada
+        // fora. O operador pedia 2 tentativas e a discadora fazia 3 — 50% mais
+        // chamada do que foi contratado, silenciosamente, e a tela mostrando o
+        // número que NÃO estava valendo. Encontrado ao construir o painel.
+        //
+        // O default global sobra apenas para Ligação sem mapa, que é o caso de
+        // evento chegando depois de um reinício do dialer.
+        $fila->aplicar(
+            $leadDaLigacao[$lig],
+            $d,
+            $maxTentativasDaLigacao[$lig] ?? $conf['max_tentativas_padrao'],
+            $tentativaDaLigacao[$lig] ?? 1,
+        );
 
         $janela[$campanhaId][] = ['conta' => $d->contaParaProtecao, 'atendeu' => $d->acao === Acao::Finalizado];
         if (count($janela[$campanhaId]) > 30) {
@@ -170,7 +196,12 @@ while ($rodando) {
             'ligacao' => $lig, 'acao' => $d->acao->name, 'codigo' => $codigo,
         ]);
 
-        unset($leadDaLigacao[$lig], $tentativaDaLigacao[$lig], $campanhaDaLigacao[$lig]);
+        unset(
+            $leadDaLigacao[$lig],
+            $tentativaDaLigacao[$lig],
+            $campanhaDaLigacao[$lig],
+            $maxTentativasDaLigacao[$lig],
+        );
     }
 
     if ($lidos >= $conf['eventos_por_volta']) {
@@ -248,6 +279,7 @@ while ($rodando) {
             $leadDaLigacao[$ligacaoId] = $lead['id'];
             $tentativaDaLigacao[$ligacaoId] = $lead['tentativa'];
             $campanhaDaLigacao[$ligacaoId] = $campanhaId;
+            $maxTentativasDaLigacao[$ligacaoId] = $c['max_tentativas'];
 
             $resp = $ami->originar(
                 canal: sprintf('%s/%s%s@%s', $conf['tecnologia'], $conf['tech_prefix'], $lead['telefone'], $conf['tronco']),
@@ -278,7 +310,12 @@ while ($rodando) {
                 // Não gasta a tentativa: não discamos. Foi recusa nossa, não do
                 // destino.
                 $fila->devolverSemGastar($lead['id']);
-                unset($leadDaLigacao[$ligacaoId], $tentativaDaLigacao[$ligacaoId], $campanhaDaLigacao[$ligacaoId]);
+                unset(
+                    $leadDaLigacao[$ligacaoId],
+                    $tentativaDaLigacao[$ligacaoId],
+                    $campanhaDaLigacao[$ligacaoId],
+                    $maxTentativasDaLigacao[$ligacaoId],
+                );
 
                 // Conta para a proteção: originação recusada é problema de
                 // configuração ou de conta, exatamente o que ela existe para pegar.

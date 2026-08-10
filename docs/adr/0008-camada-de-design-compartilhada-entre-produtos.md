@@ -106,6 +106,44 @@ daisyUI é dependência transitiva, e a API de tema dele **mudou entre a v4 e a 
 
 O esqueleto do Laravel 13 buscava Instrument Sans de CDN em tempo de build. Removido por duas razões: contraria a escolha da linhagem Helvetica como canônica do registro, e um build que precisa de egresso é um build que falha na hora errada — com uma VPS por cliente, isso importa.
 
+## O ponto duro se evita antes de se resolver
+
+As Consequências acima nomeiam a tela de chamadas ao vivo como o ponto duro:
+`wire:poll` de 1 s sobre 200 Ligações ativas re-renderiza 200 linhas por segundo,
+e a solução deveria ser decidida uma vez para a família.
+
+A primeira tela construída **não resolve esse problema — ela não o tem**, e isso
+é a decisão, não um adiamento por preguiça.
+
+O que o operador acompanha de minuto a minuto são ~8 números por Campanha: em
+voo, discadas, atendidas, taxa, opt-in, erros. Isso é agregado, e o custo é fixo
+no número de Campanhas, **independente dos canais contratados**. Uma instância de
+200 canais paga o mesmo que uma de 10.
+
+A tabela linha-a-linha ao vivo continua sendo uma tela, e continua sendo difícil.
+A diferença é que ela deixa de ser pré-requisito para o painel existir, e passa a
+ser escolha de quando pagar aquele custo.
+
+Regra que sai disso, e que vale para os próximos produtos: **antes de otimizar
+uma tela densa ao vivo, verificar se a pergunta do operador não é agregada.**
+Costuma ser.
+
+### Duas armadilhas que a construção revelou
+
+**O agregado são DUAS consultas, não uma com dois JOIN.** Juntar `leads` e
+`ligacao` no mesmo `GROUP BY` multiplica cada Lead por cada Ligação da Campanha e
+infla toda contagem por um fator que muda conforme ela avança. É a pior espécie
+de defeito de tela: números plausíveis. Travado por teste que usa quantidades
+primas entre si (4 Leads, 3 Ligações), para que a inflação apareça como valor
+impossível em vez de coincidência.
+
+**`.rotulo` vence `text-primary`.** As classes utilitárias de `design/tokens.css`
+vivem FORA de `@layer`, e as do Tailwind vivem dentro — CSS sem layer vence
+qualquer layer, independente de ordem ou especificidade. Então `.rotulo`, que
+define `color: var(--ink-muted)`, sobrescreve silenciosamente qualquer cor de
+utilidade aplicada junto. Componente de estado não usa `.rotulo`; referencia os
+tokens por valor arbitrário e mantém a cor sob controle da própria classe.
+
 ## Registro e paleta
 
 O registro escolhido é **suíço / industrial**: grade rigorosa, quase monocromático, cantos retos, régua e espaço em vez de sombra. Não existem tokens de sombra em `design/tokens.css`, e a omissão é deliberada — sombra é o vocabulário do registro rejeitado.

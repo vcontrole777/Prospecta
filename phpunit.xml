@@ -23,8 +23,23 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <!-- 🔴 MySQL, NÃO SQLite.
+
+             O esqueleto do Laravel vem com sqlite :memory:, e trocar aqui não é
+             preferência. O produto usa SQL que o SQLite não tem: coluna GERADA em
+             `bina.ddd`, `SELECT ... FOR UPDATE SKIP LOCKED` na Fila,
+             `TIMESTAMPDIFF`, e `SUM(coluna = valor)` nos agregados do painel.
+             Testar contra SQLite testaria um banco DIFERENTE do que roda em
+             produção — a mesma armadilha de "regra duplicada sempre diverge",
+             só que entre o teste e a realidade.
+
+             O schema de teste precisa existir uma vez:
+               CREATE DATABASE prospecta_test
+                 CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+               GRANT ALL ON prospecta_test.* TO 'prospecta'@'localhost';
+             As credenciais continuam vindo do .env. -->
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_DATABASE" value="prospecta_test"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

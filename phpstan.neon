@@ -10,6 +10,7 @@ parameters:
         - app/Dominio
         - app/Fastagi
         - app/Dialer
+        - app/Livewire
         - bin
         - tests/Unit/Dominio
         - tests/Unit/Fastagi
