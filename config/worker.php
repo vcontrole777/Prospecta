@@ -4,22 +4,7 @@ declare(strict_types=1);
 
 /** Configuração do `worker`. Sem env() do framework — bootstrap mínimo. */
 
-$ler = static function (string $chave, ?string $padrao = null): string {
-    $v = getenv($chave);
-    if ($v === false || $v === '') {
-        if ($padrao === null) {
-            fwrite(STDERR, json_encode([
-                'evento' => 'erro_fatal',
-                'mensagem' => "variável de ambiente obrigatória ausente: {$chave}",
-            ]) . "\n");
-            exit(1);
-        }
-
-        return $padrao;
-    }
-
-    return $v;
-};
+$ler = (require __DIR__ . '/ambiente.php')(dirname(__DIR__));
 
 return [
     'banco' => [

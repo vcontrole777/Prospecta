@@ -89,6 +89,23 @@ $campanhaDaLigacao = [];
  * @var array<int,int> $maxTentativasDaLigacao
  */
 $maxTentativasDaLigacao = [];
+/**
+ * Ligações que ATENDERAM, vistas pelo evento `Newstate` com estado `Up`.
+ *
+ * 🔴 EXISTE PORQUE `DialStatus=ANSWER` NUNCA CHEGA NESTE MODO.
+ *
+ * O produto usa `Originate` para um CONTEXTO, não um `Dial` — a chamada entra no
+ * dialplan e vai para o `fastagi`. Nesse arranjo o Asterisk não emite `DialEnd` com
+ * `DialStatus`, então `$atendeu` era SEMPRE falso e a `Politica` caía em
+ * "desconhecido, retentar".
+ *
+ * Consequência MEDIDA na primeira chamada real: a pessoa atendeu, falou, ouviu a URA, e
+ * o Lead ficou marcado para SER DISCADO DE NOVO. Só não aconteceu porque a bateria usava
+ * `max_tentativas = 1`.
+ *
+ * @var array<int,bool> $atendeuDaLigacao
+ */
+$atendeuDaLigacao = [];
 
 $rodando = true;
 foreach ([SIGTERM, SIGINT] as $sinal) {
@@ -136,7 +153,10 @@ while ($rodando) {
             break;
         }
         $tipo = $ev['Event'] ?? '';
-        if ($tipo !== 'DialEnd' && $tipo !== 'Hangup' && $tipo !== 'OriginateResponse') {
+
+        // `Newstate` entrou na lista: é onde o ATENDIMENTO aparece neste modo.
+        if ($tipo !== 'DialEnd' && $tipo !== 'Hangup'
+            && $tipo !== 'OriginateResponse' && $tipo !== 'Newstate') {
             continue;
         }
 
@@ -145,10 +165,32 @@ while ($rodando) {
             continue;
         }
 
+        // 🔴 `Newstate` com `Up` É o atendimento, e chega ANTES do desligamento.
+        //
+        // Anotar e sair: não é fim de chamada, então não há decisão a tomar aqui. Sem
+        // isto o atendimento não seria observado em lugar nenhum.
+        if ($tipo === 'Newstate') {
+            if (($ev['ChannelStateDesc'] ?? '') === 'Up') {
+                $atendeuDaLigacao[$lig] = true;
+                $log->linha('atendida', 'canal atendido', ['ligacao' => $lig]);
+            }
+            continue;
+        }
+
         // TechCause só existe a partir do Asterisk 22.7.0 — é o piso de versão.
         $codigo = $ev['TechCause'] ?? $ev['Cause-txt'] ?? null;
         $dialStatus = $ev['DialStatus'] ?? ($ev['Reason'] ?? null);
-        $atendeu = ($ev['DialStatus'] ?? '') === 'ANSWER';
+        // Três OBSERVADORES do mesmo fato, combinados por OU. O primeiro cobre o modo
+        // `Dial`, que o produto não usa hoje mas pode usar; o segundo é o `Newstate`
+        // desta chamada; o terceiro é o `fastagi`, que roda DENTRO da chamada atendida e
+        // por isso é autoridade — vale como rede quando o `Newstate` se perde numa
+        // reconexão do AMI.
+        //
+        // Nenhum dos três decide nada, os três só relatam. Redundância de OBSERVAÇÃO não
+        // é regra duplicada.
+        $atendeu = ($ev['DialStatus'] ?? '') === 'ANSWER'
+            || ($atendeuDaLigacao[$lig] ?? false)
+            || $fila->foiAtendida($lig);
 
         $d = $politica->decidir($codigo, $dialStatus, $atendeu);
         $campanhaId = $campanhaDaLigacao[$lig];
@@ -209,6 +251,7 @@ while ($rodando) {
             $tentativaDaLigacao[$lig],
             $campanhaDaLigacao[$lig],
             $maxTentativasDaLigacao[$lig],
+            $atendeuDaLigacao[$lig],
         );
     }
 
@@ -363,6 +406,7 @@ while ($rodando) {
                     $tentativaDaLigacao[$ligacaoId],
                     $campanhaDaLigacao[$ligacaoId],
                     $maxTentativasDaLigacao[$ligacaoId],
+                    $atendeuDaLigacao[$ligacaoId],
                 );
 
                 // Conta para a proteção: originação recusada é problema de

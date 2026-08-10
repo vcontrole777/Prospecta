@@ -99,6 +99,25 @@ final class Fila
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * A Ligação foi atendida? Segundo o BANCO.
+     *
+     * Rede de segurança para o sinal do AMI. Quem escreve `atendida_em` é o `fastagi`,
+     * que roda DENTRO da chamada atendida — então isto é autoridade, não inferência.
+     *
+     * Há corrida: o `fastagi` grava no fim da chamada, e o `Hangup` pode chegar ao
+     * dialer antes. Por isso o sinal principal é o evento `Newstate` do AMI, e isto é o
+     * complemento. Dois OBSERVADORES do mesmo fato combinados por OU não são regra
+     * duplicada: nenhum decide nada, os dois só relatam.
+     */
+    public function foiAtendida(int $ligacaoId): bool
+    {
+        $st = $this->pdo->prepare('SELECT atendida_em IS NOT NULL FROM ligacao WHERE id = :id');
+        $st->execute(['id' => $ligacaoId]);
+
+        return (bool) $st->fetchColumn();
+    }
+
     /** Canais realmente ocupados por esta Campanha. */
     public function contarOcupados(int $campanhaId): int
     {

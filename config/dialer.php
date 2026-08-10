@@ -4,28 +4,7 @@ declare(strict_types=1);
 
 /** Configuração do `dialer`. Sem env() do framework — bootstrap mínimo. */
 
-$ler = static function (string $chave, string $padrao = ''): string {
-    $v = getenv($chave);
-    if ($v !== false && $v !== '') {
-        return $v;
-    }
-    static $arquivo = null;
-    if ($arquivo === null) {
-        $arquivo = [];
-        $caminho = dirname(__DIR__) . '/.env';
-        if (is_readable($caminho)) {
-            foreach (file($caminho, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $linha) {
-                if ($linha === '' || $linha[0] === '#' || ! str_contains($linha, '=')) {
-                    continue;
-                }
-                [$k, $val] = explode('=', $linha, 2);
-                $arquivo[trim($k)] = trim($val, " \t\"'");
-            }
-        }
-    }
-
-    return $arquivo[$chave] ?? $padrao;
-};
+$ler = (require __DIR__ . '/ambiente.php')(dirname(__DIR__));
 
 return [
     'banco' => [

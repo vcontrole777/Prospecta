@@ -126,7 +126,9 @@ final class Fluxo
 
             if ($tecla === '') {
                 if ($tentativa < $d->tentativasUra && $d->audioNaoEntendi !== null) {
-                    $this->tocar($d->audioNaoEntendi, $r);
+                    // Cortesia: a pessoa não digitou nada, e falhar a chamada por causa
+                    // do aviso seria punir quem já estava tentando.
+                    $this->tocarCortesia($d->audioNaoEntendi, $r);
                     continue;
                 }
                 $r->desfecho = 'sem_resposta';
@@ -138,20 +140,20 @@ final class Fluxo
 
             if ($d->teclaOptIn !== null && $tecla === $d->teclaOptIn) {
                 $r->desfecho = 'opt_in';
-                $this->tocarSeHouver($d->audioConfirmaOptIn, $r);
+                $this->tocarCortesia($d->audioConfirmaOptIn, $r);
 
                 return $r;
             }
 
             if ($d->teclaOptOut !== null && $tecla === $d->teclaOptOut) {
                 $r->desfecho = 'opt_out';
-                $this->tocarSeHouver($d->audioConfirmaOptOut, $r);
+                $this->tocarCortesia($d->audioConfirmaOptOut, $r);
 
                 return $r;
             }
 
             if ($tentativa < $d->tentativasUra) {
-                $this->tocarSeHouver($d->audioNaoEntendi, $r);
+                $this->tocarCortesia($d->audioNaoEntendi, $r);
                 continue;
             }
 
@@ -238,10 +240,39 @@ final class Fluxo
         return true;
     }
 
-    private function tocarSeHouver(?string $arquivo, Resultado $r): void
+    /**
+     * 🔴 ÁUDIO DE CORTESIA: registra a falha e SEGUE, sem tocar no desfecho.
+     *
+     * A diferença com `tocar()` é de consequência, não de estilo. A abertura é CRÍTICA
+     * — sem ela o AMD analisa ar morto — e por isso `tocar()` aborta a chamada. Já
+     * "não entendi" e as confirmações são cortesia: perder uma delas piora a
+     * experiência e NÃO invalida o que a pessoa fez.
+     *
+     * Antes as duas usavam `tocar()`, e o efeito foi medido em chamada real: o
+     * `naoentendi` falhou, `tocar()` escreveu `desfecho='erro'` e `erro='AUDIO_MISSING'`,
+     * o fluxo continuou e SOBRESCREVEU o desfecho com `invalido`. Resultado: a falha de
+     * áudio desapareceu do banco e o registro ficou incoerente — `erro` preenchido com
+     * desfecho de sucesso.
+     *
+     * Engolir diagnóstico é o que o ADR-0007 proíbe. Aqui ele não é engolido: vai para o
+     * log com o arquivo e o status. O que não acontece é contaminar o desfecho de uma
+     * chamada que, do ponto de vista da pessoa, funcionou.
+     */
+    private function tocarCortesia(?string $arquivo, Resultado $r): void
     {
-        if ($arquivo !== null && $arquivo !== '') {
-            $this->tocar($arquivo, $r);
+        if ($arquivo === null || $arquivo === '') {
+            return;
+        }
+
+        $this->agi->executar('Playback', $arquivo);
+        $status = $this->agi->variavel('PLAYBACKSTATUS');
+
+        if ($status !== 'SUCCESS') {
+            $this->log->linha('audio_cortesia', 'AUDIO_MISSING', [
+                'arquivo' => $arquivo,
+                'status' => $status,
+                'consequencia' => 'seguindo sem tocar; o desfecho não foi alterado',
+            ]);
         }
     }
 }
