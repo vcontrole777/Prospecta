@@ -31,13 +31,35 @@ $conf = require dirname(__DIR__) . '/config/fastagi.php';
 $log = new Registro(STDERR);
 $log->capturarTudo();
 
-$dias = $conf['gravacao_retencao_dias'];
 $base = rtrim($conf['gravacao_dir'], '/');
 
 $pdo = new PDO($conf['banco']['dsn'], $conf['banco']['usuario'], $conf['banco']['senha'], [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES => false,
+]);
+
+// 🔴 A RETENÇÃO VEM DO BANCO, com o ambiente só como recurso.
+//
+// Havia DOIS valores para o mesmo número, com defaults DIFERENTES: a variável
+// `PROSPECTA_GRAVACAO_RETENCAO_DIAS` valia 30 e era o que este script usava, enquanto
+// `configuracao.gravacao_retencao_dias` valia 15 e NÃO ERA LIDA POR NINGUÉM. Quem
+// olhasse o banco veria 15; o expurgo apagava aos 30.
+//
+// O banco ganha porque retenção é decisão do cliente por instância, e mudar no painel
+// não pode exigir reimplantação. O ambiente sobra para o caso de a linha única de
+// `configuracao` não existir — que a migration impede, e mesmo assim.
+// `query` devolve `false` em erro, e chamar método em `false` seria fatal — o que
+// derrubaria o expurgo por causa de uma leitura de configuração.
+$st = $pdo->query('SELECT gravacao_retencao_dias FROM configuracao WHERE id = 1');
+$daConfig = $st === false ? null : $st->fetchColumn();
+
+$doBanco = is_numeric($daConfig) && (int) $daConfig > 0;
+$dias = $doBanco ? (int) $daConfig : $conf['gravacao_retencao_dias'];
+
+$log->linha('retencao', 'retenção em vigor', [
+    'dias' => $dias,
+    'origem' => $doBanco ? 'configuracao' : 'ambiente',
 ]);
 
 $caminho = new CaminhoDeGravacao();

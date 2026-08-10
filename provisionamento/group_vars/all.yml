@@ -79,7 +79,14 @@ gravacao_dir: /var/spool/asterisk/gravacoes
 # Gravação: GSM é ~10x menor que WAV. 200 canais em WAV são 41 GB/dia
 # contra 4,3 GB/dia em GSM. "Gravar tudo" só é sustentável comprimido.
 gravacao_formato: gsm
-gravacao_retencao_dias: 30
+# 🔴 Só RECURSO. A retenção em vigor vem de `configuracao.gravacao_retencao_dias`,
+# editável no painel — retenção é decisão do cliente e mudar não pode exigir
+# reimplantação. Este valor só é usado se a linha única de configuracao não existir.
+#
+# Alinhado com o default do esquema (15). Estavam divergentes — 30 aqui e 15 na
+# migration — e o expurgo usava este, então quem olhasse o banco veria o número errado.
+# A migration justifica os 15: em regime dão ~21 GB/mês por cliente em GSM.
+gravacao_retencao_dias: 15
 
 # FastAGI por ativação de socket do systemd.
 fastagi_porta: 4573
