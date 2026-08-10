@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Livewire\CampanhaForm;
 use App\Livewire\Campanhas;
+use App\Livewire\ImportarLista;
 use App\Livewire\Entrar;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -35,6 +36,7 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/campanhas/nova', CampanhaForm::class)->name('campanha.nova');
     Route::get('/campanhas/{id}/editar', CampanhaForm::class)->name('campanha.editar');
+    Route::get('/campanhas/{id}/importar', ImportarLista::class)->name('campanha.importar');
 
     /*
     | POST e não GET: saída por GET é acionável por qualquer imagem ou link de

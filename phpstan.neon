@@ -13,9 +13,11 @@ parameters:
         - app/Livewire
         - app/Console
         - app/Worker
+        - app/Importacao
         - bin
         - tests/Unit/Dominio
         - tests/Unit/Fastagi
         - tests/Unit/Dialer
         - tests/Unit/Worker
+        - tests/Unit/Importacao
     treatPhpDocTypesAsCertain: true

@@ -129,6 +129,13 @@
                                             class="btn btn-ghost btn-xs">pausar</button>
                                 @endif
 
+                                {{-- Importar aparece com destaque enquanto a
+                                     Campanha não tem Lead: é a peça que falta para
+                                     ela poder ir ao ar, e a guarda de iniciar não
+                                     deixa passar sem ela. --}}
+                                <a href="{{ route('campanha.importar', $c['id']) }}"
+                                   class="btn btn-ghost btn-xs {{ $c['leads'] === 0 ? 'text-primary' : '' }}">importar</a>
+
                                 <a href="{{ route('campanha.editar', $c['id']) }}"
                                    class="btn btn-ghost btn-xs">editar</a>
                             </td>
