@@ -11,6 +11,7 @@ parameters:
         - app/Fastagi
         - app/Dialer
         - app/Livewire
+        - app/Console
         - bin
         - tests/Unit/Dominio
         - tests/Unit/Fastagi

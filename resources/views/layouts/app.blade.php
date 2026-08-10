@@ -41,6 +41,20 @@
                 <span class="rotulo">discadora</span>
             </div>
         </x-slot:brand>
+
+        <x-slot:actions>
+            <div class="flex items-center gap-4">
+                <span class="rotulo">{{ auth()->user()?->name }}</span>
+
+                {{-- Formulário e não link: saída por GET é acionável por qualquer
+                     imagem de terceiro apontando para /sair, o que derrubaria a
+                     sessão do operador no meio de uma campanha. --}}
+                <form method="POST" action="{{ route('sair') }}">
+                    @csrf
+                    <button type="submit" class="btn btn-ghost btn-sm">Sair</button>
+                </form>
+            </div>
+        </x-slot:actions>
     </x-nav>
 
     <x-main with-nav full-width>

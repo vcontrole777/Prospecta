@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\Test;
@@ -18,6 +19,18 @@ use Tests\TestCase;
 final class PainelTest extends TestCase
 {
     use RefreshDatabase;
+
+    /**
+     * O painel inteiro exige sessão. Autenticar no setUp mantém cada teste falando
+     * do que ele mede; que a rota SEJA protegida é afirmado em `EntrarTest`, e
+     * precisa ser afirmado lá, senão este setUp esconderia a proteção sumindo.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->actingAs(User::factory()->create());
+    }
 
     #[Test]
     public function a_home_responde_e_traz_o_cabecalho(): void
