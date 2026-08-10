@@ -6,6 +6,7 @@ use App\Livewire\CampanhaForm;
 use App\Livewire\Audios;
 use App\Livewire\Campanhas;
 use App\Livewire\ImportarLista;
+use App\Livewire\Integracoes;
 use App\Livewire\Entrar;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -40,6 +41,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/campanhas/{id}/importar', ImportarLista::class)->name('campanha.importar');
 
     Route::get('/audios', Audios::class)->name('audios');
+    Route::get('/integracoes', Integracoes::class)->name('integracoes');
 
     /*
     | POST e não GET: saída por GET é acionável por qualquer imagem ou link de
