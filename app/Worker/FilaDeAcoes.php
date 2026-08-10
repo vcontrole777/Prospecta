@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Worker;
 
+use App\Seguranca\Cofre;
 use PDO;
 
 /**
@@ -13,6 +14,11 @@ final class FilaDeAcoes
 {
     public function __construct(
         private readonly PDO $pdo,
+        /**
+         * Decifra `integracao.credenciais`. Opcional para o caso de instalação que
+         * ainda tenha credencial em claro de antes da cifra — ver `credenciaisWhatsapp`.
+         */
+        private readonly ?Cofre $cofre = null,
     ) {
     }
 
@@ -162,8 +168,16 @@ final class FilaDeAcoes
             return null;
         }
 
-        $cred = json_decode(self::texto($linha['credenciais'] ?? null), true);
-        if (! is_array($cred)) {
+        $guardado = self::texto($linha['credenciais'] ?? null);
+
+        // A convenção do envelope vive no `Cofre`, não aqui — painel e worker usam o
+        // mesmo par de métodos. Sem `Cofre` injetado, lê como claro (caso de teste e
+        // de instalação anterior à cifra).
+        $cred = $this->cofre !== null
+            ? $this->cofre->decifrarDaColuna($guardado)
+            : json_decode($guardado, true);
+
+        if (! is_array($cred) || $cred === []) {
             return null;
         }
 

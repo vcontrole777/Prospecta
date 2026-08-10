@@ -15,6 +15,7 @@ parameters:
         - app/Worker
         - app/Importacao
         - app/Audio
+        - app/Seguranca
         - bin
         - tests/Unit/Dominio
         - tests/Unit/Fastagi
@@ -22,4 +23,5 @@ parameters:
         - tests/Unit/Worker
         - tests/Unit/Importacao
         - tests/Unit/Audio
+        - tests/Unit/Seguranca
     treatPhpDocTypesAsCertain: true

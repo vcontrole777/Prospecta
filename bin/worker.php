@@ -27,6 +27,7 @@ use App\Worker\DecisaoDeEnvio;
 use App\Worker\Envio;
 use App\Worker\FilaDeAcoes;
 use App\Worker\Interrupcao;
+use App\Seguranca\Cofre;
 use App\Worker\PoliticaDeEnvio;
 use App\Worker\TransporteCurl;
 use App\Worker\Whatsapp;
@@ -43,7 +44,7 @@ $pdo = new PDO($conf['banco']['dsn'], $conf['banco']['usuario'], $conf['banco'][
     PDO::ATTR_EMULATE_PREPARES => false,
 ]);
 
-$fila = new FilaDeAcoes($pdo);
+$fila = new FilaDeAcoes($pdo, new Cofre($conf['app_key']));
 $politica = new PoliticaDeEnvio();
 $placeholder = new Placeholder();
 $transporte = new TransporteCurl($conf['timeout_http_seg']);

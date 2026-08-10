@@ -35,6 +35,14 @@ return [
 
     // Quantas Ações por volta. Baixo de propósito: cada uma é uma requisição HTTP
     // com timeout, e uma volta longa demora a reagir a sinal de parada.
+    // 🔴 A `APP_KEY` é chave de DADOS aqui, não só de sessão.
+    //
+    // A credencial de fornecedor é cifrada pelo painel e decifrada aqui, e as duas
+    // pontas só compartilham esta chave — o worker não tem o `Crypt` do Laravel
+    // porque roda com bootstrap mínimo (ADR-0001). Trocar a APP_KEY torna toda
+    // credencial ilegível e exige recadastrar cada integração.
+    'app_key' => $ler('APP_KEY'),
+
     'lote' => (int) $ler('PROSPECTA_WORKER_LOTE', '20'),
 
     // 🔴 TETO BAIXO, e não é falta de ambição.
