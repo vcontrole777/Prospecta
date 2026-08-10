@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Livewire\CampanhaForm;
 use App\Livewire\Campanhas;
 use App\Livewire\Entrar;
 use Illuminate\Http\Request;
@@ -31,6 +32,9 @@ Route::middleware('guest')->group(function (): void {
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/', Campanhas::class)->name('campanhas');
+
+    Route::get('/campanhas/nova', CampanhaForm::class)->name('campanha.nova');
+    Route::get('/campanhas/{id}/editar', CampanhaForm::class)->name('campanha.editar');
 
     /*
     | POST e não GET: saída por GET é acionável por qualquer imagem ou link de

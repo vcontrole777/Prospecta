@@ -8,9 +8,22 @@
 --}}
 <div wire:poll.2s>
     <div class="flex items-baseline justify-between border-b border-[var(--rule)] pb-3">
-        <h1 class="text-lg font-semibold tracking-tight">Campanhas</h1>
-        <span class="rotulo">atualiza a cada 2s</span>
+        <div class="flex items-baseline gap-3">
+            <h1 class="text-lg font-semibold tracking-tight">Campanhas</h1>
+            <span class="rotulo">atualiza a cada 2s</span>
+        </div>
+        <a href="{{ route('campanha.nova') }}" class="btn btn-primary btn-sm">Nova Campanha</a>
     </div>
+
+    {{-- A recusa de iniciar diz O QUE falta, não "erro". Uma Campanha que não pode
+         rodar tem causa nomeável, e nomeá-la é a diferença entre o operador
+         consertar e o operador abrir ticket. --}}
+    @if (session('recusa'))
+        <div class="mt-4 border border-warning/50 p-3 text-sm text-warning">{{ session('recusa') }}</div>
+    @endif
+    @if (session('recado'))
+        <div class="mt-4 border border-[var(--rule)] p-3 text-sm text-base-content/70">{{ session('recado') }}</div>
+    @endif
 
     @if ($campanhas === [])
         <div class="mt-10 border border-[var(--rule)] p-8 text-center">
@@ -19,9 +32,9 @@
                  "crie uma Campanha" mandaria o operador procurar um botão que
                  não existe. --}}
             <p class="mt-2 text-sm text-base-content/50">
-                A tela de criação ainda não existe — por enquanto as Campanhas
-                nascem por SQL ou pela importação de lista.
+                Crie a primeira e depois importe a lista de Leads.
             </p>
+            <a href="{{ route('campanha.nova') }}" class="btn btn-primary btn-sm mt-4">Nova Campanha</a>
         </div>
     @else
         <div class="mt-4 overflow-x-auto">
@@ -36,7 +49,8 @@
                         <th class="py-2 pr-4 text-right"><span class="rotulo">Atendidas</span></th>
                         <th class="py-2 pr-4 text-right"><span class="rotulo">Taxa</span></th>
                         <th class="py-2 pr-4 text-right"><span class="rotulo">Opt-in</span></th>
-                        <th class="py-2 text-right"><span class="rotulo">Erros</span></th>
+                        <th class="py-2 pr-4 text-right"><span class="rotulo">Erros</span></th>
+                        <th class="py-2 text-right"><span class="rotulo">Ações</span></th>
                     </tr>
                 </thead>
 
@@ -98,8 +112,25 @@
 
                             {{-- Vermelho SÓ quando há erro. Zero em vermelho
                                  gastaria o significado da cor na tabela toda. --}}
-                            <td class="num py-2.5 {{ $c['erros'] > 0 ? 'text-error font-semibold' : 'text-base-content/40' }}">
+                            <td class="num py-2.5 pr-4 {{ $c['erros'] > 0 ? 'text-error font-semibold' : 'text-base-content/40' }}">
                                 {{ $c['erros'] }}
+                            </td>
+
+                            <td class="py-2.5 text-right whitespace-nowrap">
+                                {{-- Só as transições que o dialer respeita:
+                                     rascunho e pausada podem ir ao ar; no ar pode
+                                     pausar; concluída não volta. --}}
+                                @if ($c['status'] === 0 || $c['status'] === 2)
+                                    <button wire:click="iniciar({{ $c['id'] }})"
+                                            wire:confirm="Pôr a Campanha no ar e começar a discar?"
+                                            class="btn btn-ghost btn-xs text-primary">iniciar</button>
+                                @elseif ($c['status'] === 1)
+                                    <button wire:click="pausar({{ $c['id'] }})"
+                                            class="btn btn-ghost btn-xs">pausar</button>
+                                @endif
+
+                                <a href="{{ route('campanha.editar', $c['id']) }}"
+                                   class="btn btn-ghost btn-xs">editar</a>
                             </td>
                         </tr>
                     @endforeach

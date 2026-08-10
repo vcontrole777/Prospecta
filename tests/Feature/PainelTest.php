@@ -46,10 +46,11 @@ final class PainelTest extends TestCase
         $this->get('/')
             ->assertOk()
             ->assertSee('Nenhuma Campanha')
-            // A mensagem diz que a tela de criação não existe. Se alguém
-            // construir a tela e esquecer de trocar o texto, isto falha — que é
-            // exatamente quando deve falhar.
-            ->assertSee('A tela de criação ainda não existe', escape: false);
+            // A versão anterior deste teste afirmava o texto "a tela de criação
+            // ainda não existe", e FALHOU quando a tela passou a existir — que é
+            // exatamente quando devia falhar. Agora afirma o caminho de saída: o
+            // estado vazio tem que oferecer a ação, não só constatar o vazio.
+            ->assertSee(route('campanha.nova'), escape: false);
     }
 
     #[Test]
@@ -181,7 +182,8 @@ final class PainelTest extends TestCase
             $celulas[] = trim((string) preg_replace('/\s+/', ' ', html_entity_decode($texto)));
         }
 
-        $this->assertCount(9, $celulas, 'a tabela deveria ter 9 colunas');
+        // 10: as nove de dado mais a de Ações.
+        $this->assertCount(10, $celulas, 'a tabela deveria ter 10 colunas');
 
         return $celulas;
     }

@@ -28,6 +28,80 @@ final class Campanhas extends Component
     }
 
     /**
+     * Põe a Campanha no ar. O dialer só olha `status = 1`.
+     *
+     * 🔴 RECUSA quando a Campanha não pode funcionar, e as três checagens são a
+     * diferença entre "discou" e "discou e não fez nada":
+     *
+     * · sem Lead disponível — o dialer não acha nada, marca a Campanha como
+     *   concluída na mesma volta, e o operador vê "concluída" um segundo depois de
+     *   clicar em iniciar. Parece defeito, e a causa verdadeira não aparece.
+     * · sem áudio de mensagem — liga para o Lead e não fala nada. Medido que
+     *   `Playback` em arquivo ausente devolve FAILED e o dialplan CONTINUA.
+     * · WhatsApp sem template — o Lead aperta 1, a Ação é gravada e o worker a
+     *   recusa com `campanha_sem_template_ou_lead_sem_telefone`. O opt-in que o
+     *   cliente pagou para conseguir morre depois de dar certo.
+     */
+    public function iniciar(int $id): void
+    {
+        $linha = DB::table('campanha')->where('id', $id)->first();
+        if ($linha === null) {
+            return;
+        }
+        $c = (array) $linha;
+
+        $faltas = [];
+
+        // Status 1 é disponível e 4 é aguardando a próxima rodada — as duas contam,
+        // porque o dialer abre a rodada seguinte sozinho.
+        $disponiveis = DB::table('leads')
+            ->where('campanha_id', $id)
+            ->whereIn('status', [1, 4])
+            ->count();
+
+        if ($disponiveis === 0) {
+            $faltas[] = 'nenhum Lead disponível — importe a lista antes';
+        }
+
+        if (($c['audio_mensagem_id'] ?? null) === null) {
+            $faltas[] = 'áudio da mensagem não escolhido — a chamada sairia muda';
+        }
+
+        if (($c['canal_opt_in'] ?? null) === 'whatsapp' && ($c['template_nome'] ?? null) === null) {
+            $faltas[] = 'nome do template ausente — o opt-in não viraria mensagem';
+        }
+
+        if ($faltas !== []) {
+            session()->flash('recusa', 'Não iniciei: ' . implode('; ', $faltas) . '.');
+
+            return;
+        }
+
+        // `COALESCE` preserva a primeira ativação: retomar uma Campanha pausada não
+        // deveria reescrever quando ela começou.
+        DB::table('campanha')
+            ->where('id', $id)
+            ->whereIn('status', [0, 2])
+            ->update([
+                'status' => 1,
+                'iniciada_em' => DB::raw('COALESCE(iniciada_em, NOW())'),
+            ]);
+
+        session()->flash('recado', 'Campanha no ar.');
+    }
+
+    /**
+     * Pausa. O `where` no status evita pausar Campanha já concluída, o que a
+     * ressuscitaria como pausável e faria o dialer reavaliá-la sem motivo.
+     */
+    public function pausar(int $id): void
+    {
+        DB::table('campanha')->where('id', $id)->where('status', 1)->update(['status' => 2]);
+
+        session()->flash('recado', 'Campanha pausada.');
+    }
+
+    /**
      * @return list<array<string,int|string|null>>
      */
     private function resumo(): array
