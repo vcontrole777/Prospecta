@@ -1,0 +1,45 @@
+# ADR-0007: análise estática não é higiene opcional neste projeto.
+#
+# O `fastagi` roda sem navegador, sem observador, com o Lead na linha — é o pior
+# lugar do sistema para um "Undefined variable". No MagnusBilling, SEIS defeitos
+# do caminho de coleta de DTMF sobreviveram anos porque a linha 3 do despachante
+# suprimia exatamente os diagnósticos que os pegariam. Um deles era um método
+# chamado sobre array: aquele caminho nunca executou uma única vez.
+#
+# Nada aqui precisa de banco: o domínio é puro por exigência do ADR-0006, e é
+# essa pureza que mantém o CI em segundos.
+name: qualidade
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  dominio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Instalar dependências
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: PHPStan (nível 9 no domínio)
+        run: vendor/bin/phpstan analyse --no-progress
+
+      - name: Testes do domínio
+        run: vendor/bin/phpunit tests/Unit/Dominio --no-coverage
+
+      - name: Sintaxe do dialplan e do provisionamento
+        run: |
+          # yamllint e o syntax-check do Ansible pegam classes de defeito que o
+          # PHPStan não vê. Ver #23: cinco defeitos do provisionamento só
+          # apareceram executando, e dois só apareceram no lint.
+          pipx install yamllint ansible-core 2>/dev/null || pip install --break-system-packages yamllint ansible-core
+          cd provisionamento
+          yamllint .
+          ansible-playbook site.yml --syntax-check -i inventario.exemplo.yml

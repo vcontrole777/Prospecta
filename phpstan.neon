@@ -1,0 +1,12 @@
+# ADR-0007: análise estática não é higiene opcional.
+# O `fastagi` roda sem navegador, sem observador, com o Lead na linha — é o pior
+# lugar do sistema para um "Undefined variable". No MagnusBilling, seis defeitos
+# do caminho de DTMF sobreviveram anos porque a linha 3 do despachante suprimia
+# exatamente os diagnósticos que os pegariam.
+parameters:
+    # Nível MÁXIMO no domínio: é código puro, sem framework, sem desculpa.
+    level: 9
+    paths:
+        - app/Dominio
+        - tests/Unit/Dominio
+    treatPhpDocTypesAsCertain: true
