@@ -102,6 +102,24 @@ final class Fluxo
 
     private function optIn(Dados $d, Resultado $r): Resultado
     {
+        // 🔴 RECUSA em vez de discar mudo.
+        //
+        // `audioMensagem` é nulo quando a Campanha não tem áudio E a configuração global
+        // não tem o genérico. Antes havia um `'prospecta/mensagem'` fixo no lugar — um
+        // arquivo que o código referenciava e o provisionamento não instalava —, e o
+        // efeito era `lerDigitos` sem prompt: a pessoa ouvia SILÊNCIO por 8 segundos e o
+        // desfecho virava `sem_resposta`, indistinguível de quem não quis responder.
+        //
+        // A guarda do painel impede isso para quem passa pela tela; Campanha ativada por
+        // SQL não passa. Causa nomeada aqui é o que torna o problema legível.
+        if ($d->audioMensagem === null) {
+            $this->log->linha('audio', 'AUDIO_NAO_CONFIGURADO', ['ligacao' => $d->ligacaoId]);
+            $r->desfecho = 'erro';
+            $r->erro = 'AUDIO_NAO_CONFIGURADO';
+
+            return $r;
+        }
+
         for ($tentativa = 1; $tentativa <= max(1, $d->tentativasUra); $tentativa++) {
             $tecla = $this->agi->lerDigitos($d->audioMensagem, 1, 8000);
             $this->log->linha('tecla', 'dígito lido', ['tentativa' => $tentativa, 'tecla' => $tecla]);

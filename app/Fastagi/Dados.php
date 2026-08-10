@@ -23,7 +23,18 @@ final class Dados
         public readonly int $ligacaoId,
         public readonly string $tipo,
         public readonly string $audioAbertura,
-        public readonly string $audioMensagem,
+        /**
+         * 🔴 OPCIONAL, e a mudança é o conserto de uma falha calada.
+         *
+         * Antes era `string` com `'prospecta/mensagem'` fixo como recurso — um arquivo
+         * que o código referenciava e o provisionamento NÃO instalava. Campanha ativada
+         * por SQL sem áudio de mensagem fazia a URA ler dígitos sem prompt: a pessoa
+         * ouvia SILÊNCIO por 8 segundos e o desfecho virava `sem_resposta`.
+         *
+         * Agora o recurso é `configuracao.audio_mensagem_generica_id`, e `null` aqui é
+         * um estado que o `Fluxo` recusa com causa nomeada em vez de discar mudo.
+         */
+        public readonly ?string $audioMensagem,
         public readonly ?string $audioConfirmaOptIn,
         public readonly ?string $audioConfirmaOptOut,
         public readonly ?string $audioNaoEntendi,

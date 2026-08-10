@@ -31,14 +31,45 @@ final class FluxoTest extends TestCase
         $this->log = $l;
     }
 
-    /** @param 'opt_in'|'captura' $tipo */
-    private function dados(string $tipo = 'opt_in', int $tentativas = 2, bool $gravar = true): Dados
+    /**
+     * 🔴 SEM ÁUDIO DE MENSAGEM, RECUSA — não disca mudo.
+     *
+     * Havia um `'prospecta/mensagem'` FIXO no lugar deste nulo, apontando para um
+     * arquivo que o código referenciava e o provisionamento nunca instalou. O efeito
+     * era `lerDigitos` sem prompt: a pessoa ouvia SILÊNCIO por 8 segundos e o desfecho
+     * virava `sem_resposta` — indistinguível de quem simplesmente não quis responder,
+     * e por isso invisível em qualquer relatório.
+     */
+    #[Test]
+    public function sem_audio_de_mensagem_recusa_com_causa_nomeada(): void
     {
+        [$r, $comandos] = $this->rodar(
+            $this->ate_amd('HUMAN'),
+            $this->dados(audioMensagem: null),
+        );
+
+        $this->assertSame('erro', $r->desfecho);
+        $this->assertSame('AUDIO_NAO_CONFIGURADO', $r->erro);
+
+        // E NÃO tentou ler dígito: a recusa acontece ANTES da URA. Sem esta asserção,
+        // o teste passaria mesmo se a recusa viesse depois de a pessoa ouvir silêncio.
+        foreach ($comandos as $cmd) {
+            $this->assertStringNotContainsString('GET DATA', $cmd);
+        }
+    }
+
+    /** @param 'opt_in'|'captura' $tipo */
+    private function dados(
+        string $tipo = 'opt_in',
+        int $tentativas = 2,
+        bool $gravar = true,
+        ?string $audioMensagem = 'prospecta/mensagem',
+    ): Dados {
         return new Dados(
             ligacaoId: 4242,
             tipo: $tipo,
             audioAbertura: 'prospecta/abertura',
-            audioMensagem: 'prospecta/mensagem',
+            audioMensagem: $audioMensagem,
             audioConfirmaOptIn: 'prospecta/optin',
             audioConfirmaOptOut: 'prospecta/optout',
             audioNaoEntendi: 'prospecta/naoentendi',

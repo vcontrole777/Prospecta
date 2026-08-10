@@ -11,10 +11,16 @@ projeto ou do dono da Campanha.
 Estes são fixos, do produto, e vivem aqui. Vão para
 `/var/lib/asterisk/sounds/prospecta/` no provisionamento.
 
-| Arquivo | Conteúdo | Duração |
-|---|---|---|
-| `abertura` | "Alô?" | **~1 s, não mais** |
-| `naoentendi` | "Não entendi, vamos tentar de novo." | ~2 s |
+| Arquivo | Conteúdo | Duração | Usado quando |
+|---|---|---|---|
+| `abertura` | "Alô?" | **~1 s, não mais** | SEMPRE, antes do AMD |
+| `naoentendi` | "Não entendi, vamos tentar de novo." | ~2 s | a Campanha não tem o dela |
+
+> [!warning] `naoentendi` era peso morto até 2026-08-10
+> O provisionamento instalava o arquivo e **nenhuma linha de código o usava** — o
+> Fluxo tocava apenas o `audio_nao_entendi_id` da Campanha. Sem o da Campanha, a URA
+> repetia a mensagem sem explicar nada: a pessoa ouvia a mesma coisa de novo e não
+> sabia por quê. Agora ele é o recurso, que é o que este arquivo sempre descreveu.
 
 ### `abertura` tem um limite duro de duração
 
@@ -25,6 +31,26 @@ para todo mundo — o AMD para de classificar.
 Foi verificado em chamada real que ~1 s não invade. **Se trocar o arquivo,
 refazer a checagem:** ligar para um destino com a linha comprovadamente muda e
 confirmar que o veredito continua `NOTSURE`.
+
+## Recurso do áudio de MENSAGEM
+
+O áudio da mensagem vem da Campanha. Quando ela não tem, o recurso é
+`configuracao.audio_mensagem_generica_id`, cadastrado pelo painel — **não** um arquivo
+de sistema.
+
+Quando não há nenhum dos dois, o Fluxo RECUSA a chamada com
+`AUDIO_NAO_CONFIGURADO` em vez de discar. Havia antes um `'prospecta/mensagem'` fixo
+no código, apontando para arquivo que este diretório nunca teve: o efeito era
+`lerDigitos` sem prompt, a pessoa ouvindo silêncio por 8 segundos, e o desfecho virando
+`sem_resposta` — indistinguível de quem simplesmente não quis responder.
+
+## As três causas nomeadas
+
+| Causa | Significa |
+|---|---|
+| `AUDIO_MISSING` | o arquivo não tocou — ausente no disco, ou ilegível |
+| `AUDIO_INCOMPATIBLE` | o arquivo existe e o tamanho não corresponde à duração gravada |
+| `AUDIO_NAO_CONFIGURADO` | não há áudio de mensagem na Campanha nem genérico na configuração |
 
 ## Os áudios de Campanha NÃO ficam aqui
 

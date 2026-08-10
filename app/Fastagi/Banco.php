@@ -68,6 +68,7 @@ final class Banco
                     ai.arquivo  AS audio_opt_in,
                     ao.arquivo  AS audio_opt_out,
                     an.arquivo  AS audio_nao_entendi,
+                    ag.arquivo  AS audio_mensagem_generica,
                     g.gravacao_ativa
             FROM ligacao l
             JOIN campanha c        ON c.id = l.campanha_id
@@ -87,6 +88,15 @@ final class Banco
             -- a ausência é registrada nomeando a causa. É a ordem certa de
             -- prioridade: a chamada é o produto.
             LEFT JOIN configuracao g ON g.id = 1
+            -- Recurso GLOBAL de mensagem, da `configuracao`. A coluna existia e era
+            -- órfã, enquanto o código apontava para um `prospecta/mensagem` fixo que
+            -- ninguém instalava.
+            --
+            -- 🔴 DEPOIS de `configuracao g`, e a ordem é obrigatória: junção só pode
+            -- referenciar alias já introduzido. Escrevi antes e o MySQL recusou com
+            -- "Unknown column 'g.audio_mensagem_generica_id' in 'on clause'" — o que
+            -- derrubaria TODA chamada, e o teste pegou.
+            LEFT JOIN audio ag ON ag.id = g.audio_mensagem_generica_id
             WHERE l.id = :id
             LIMIT 1
         SQL;
@@ -116,11 +126,21 @@ final class Banco
             ligacaoId: $ligacaoId,
             tipo: self::texto($linha['tipo'] ?? null) === 'captura' ? 'captura' : 'opt_in',
             audioAbertura: 'prospecta/abertura',
+            // Áudio da Campanha, com recurso na configuração global. `null` quando não
+            // há nenhum dos dois — e o `Fluxo` recusa a chamada com causa nomeada, em
+            // vez de discar e tocar silêncio.
             audioMensagem: $this->caminho($audioDir, self::texto($linha['audio_mensagem'] ?? null))
-                ?? 'prospecta/mensagem',
+                ?? $this->caminho($audioDir, self::texto($linha['audio_mensagem_generica'] ?? null)),
             audioConfirmaOptIn: $this->caminho($audioDir, self::texto($linha['audio_opt_in'] ?? null)),
             audioConfirmaOptOut: $this->caminho($audioDir, self::texto($linha['audio_opt_out'] ?? null)),
-            audioNaoEntendi: $this->caminho($audioDir, self::texto($linha['audio_nao_entendi'] ?? null)),
+            // 🔴 Recurso no áudio de SISTEMA. Ele é instalado pelo provisionamento e
+            // NENHUMA linha de código o usava — peso morto que o playbook exigia.
+            //
+            // Sem recurso, a URA repetia a mensagem sem explicar nada: a pessoa ouvia a
+            // mesma coisa de novo e não sabia por quê. "Não entendi, vamos tentar de
+            // novo" é o que o audios/README.md descreve como a intenção do arquivo.
+            audioNaoEntendi: $this->caminho($audioDir, self::texto($linha['audio_nao_entendi'] ?? null))
+                ?? $audioDir . '/naoentendi',
             teclaOptIn: self::texto($linha['tecla_opt_in'] ?? null),
             teclaOptOut: self::texto($linha['tecla_opt_out'] ?? null),
             tentativasUra: self::numero($linha['tentativas_ura'] ?? null),
