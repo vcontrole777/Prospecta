@@ -123,6 +123,8 @@ final class IntegracoesTest extends TestCase
             ->set('nome', 'Sem token')
             ->set('credenciais.token', '')
             ->set('credenciais.phone_number_id', '555000')
+            ->set('credenciais.app_secret', 'x')
+            ->set('credenciais.verify_token', 'y')
             ->call('salvar')
             ->assertHasErrors('credenciais.token');
 
@@ -256,6 +258,10 @@ final class IntegracoesTest extends TestCase
             ->set('nome', 'WhatsApp principal')
             ->set('credenciais.token', self::TOKEN)
             ->set('credenciais.phone_number_id', '555000')
+            // O webhook exige estes dois: sem app secret o endpoint recusa TODO
+            // evento, e o verify token é o aperto de mão.
+            ->set('credenciais.app_secret', 'app-secret-da-meta')
+            ->set('credenciais.verify_token', 'token-do-webhook')
             ->call('salvar');
     }
 }

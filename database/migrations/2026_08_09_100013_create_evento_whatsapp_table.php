@@ -18,8 +18,18 @@ return new class extends Migration
             // Idempotência contra a reentrega da Meta.
             $t->string('id_externo')->unique();
 
-            // Cru, como chegou. Definir expurgo ANTES de acumular — e o expurgo
-            // apaga o payload, nunca a linha de conversa_mensagem.
+            // 🔴 NÃO é "cru, como chegou" — e a versão anterior deste comentário
+            // afirmava que era. Coluna `JSON` faz o MySQL NORMALIZAR o que entra:
+            // espaços somem e chaves podem ser reordenadas. Verificado em teste.
+            //
+            // Consequência: a assinatura `X-Hub-Signature-256` NÃO pode ser
+            // reverificada a partir desta coluna, porque ela é sobre os bytes
+            // originais. Para o processamento isso é indiferente — o worker faz
+            // json_decode de todo jeito. Se um dia for preciso provar autenticidade
+            // depois do fato, o tipo tem que virar LONGTEXT.
+            //
+            // Definir expurgo ANTES de acumular — e o expurgo apaga o payload, nunca
+            // a linha de conversa_mensagem.
             $t->json('payload');
 
             $t->timestamp('recebido_em')->useCurrent();

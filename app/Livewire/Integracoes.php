@@ -58,6 +58,16 @@ final class Integracoes extends Component
                     'dica' => 'É o ID do número, não o número. A permissão de ligar do WhatsApp fica NESTE número.',
                 ],
                 'versao_api' => ['rotulo' => 'Versão da API', 'segredo' => false, 'padrao' => 'v21.0'],
+                'app_secret' => [
+                    'rotulo' => 'App Secret',
+                    'segredo' => true,
+                    'dica' => 'Assina o webhook. Sem ele o endpoint recusa TODO evento — é a única proteção de uma rota que precisa ser pública.',
+                ],
+                'verify_token' => [
+                    'rotulo' => 'Verify Token do webhook',
+                    'segredo' => true,
+                    'dica' => 'Você escolhe este valor e repete o mesmo no painel da Meta ao cadastrar o webhook.',
+                ],
             ],
         ],
         'tts' => [

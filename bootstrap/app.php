@@ -22,6 +22,13 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // O contrário também: quem já entrou e visita /entrar vai para o painel.
         $middleware->redirectUsersTo('/');
+
+        // 🔴 O webhook da Meta NÃO tem token CSRF, e não teria como ter: quem chama é
+        // máquina, sem sessão e sem formulário. Sem esta exclusão todo POST dela volta
+        // 419 — e 419 é não-200, então a Meta reentrega o mesmo evento em laço,
+        // indefinidamente, enquanto o log do nginx enche de 419 que ninguém liga a
+        // CSRF. O que protege a rota é a assinatura, verificada no controller.
+        $middleware->validateCsrfTokens(except: ['webhook/*']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

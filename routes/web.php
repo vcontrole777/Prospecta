@@ -6,6 +6,7 @@ use App\Livewire\CampanhaForm;
 use App\Livewire\Audios;
 use App\Livewire\Campanhas;
 use App\Livewire\ImportarLista;
+use App\Http\Controllers\WebhookWhatsapp;
 use App\Livewire\Integracoes;
 use App\Livewire\Entrar;
 use Illuminate\Http\Request;
@@ -29,6 +30,19 @@ use Illuminate\Support\Facades\Route;
 | convidado está em bootstrap/app.php, e no Laravel 13 ele é OBRIGATÓRIO: sem ele
 | o acesso não autenticado devolve 401 sem corpo em vez do formulário.
 */
+/*
+| 🔴 WEBHOOK: PÚBLICO, e tem que ser.
+|
+| Quem chama é a Meta, não o operador — pôr atrás de `auth` faria todo evento voltar
+| como redirecionamento para o formulário de login, e a Meta reentregaria em laço.
+|
+| O que protege é a assinatura `X-Hub-Signature-256`, verificada no controller. E o
+| CSRF é excluído em bootstrap/app.php: sem isso todo POST da Meta volta 419, que
+| também é não-200 e também gera reentrega em laço.
+*/
+Route::get('/webhook/whatsapp', [WebhookWhatsapp::class, 'verificar'])->name('webhook.whatsapp.verificar');
+Route::post('/webhook/whatsapp', [WebhookWhatsapp::class, 'receber'])->name('webhook.whatsapp');
+
 Route::middleware('guest')->group(function (): void {
     Route::get('/entrar', Entrar::class)->name('login');
 });
