@@ -49,6 +49,7 @@
                 <a href="{{ route('campanhas') }}" class="rotulo hover:text-primary">Campanhas</a>
                 <a href="{{ route('conversas') }}" class="rotulo hover:text-primary">Conversas</a>
                 <a href="{{ route('audios') }}" class="rotulo hover:text-primary">Áudios</a>
+                <a href="{{ route('binas') }}" class="rotulo hover:text-primary">BINA</a>
                 <a href="{{ route('integracoes') }}" class="rotulo hover:text-primary">Integrações</a>
                 <a href="{{ route('configuracao') }}" class="rotulo hover:text-primary">Configuração</a>
 
