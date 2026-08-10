@@ -22,6 +22,18 @@
             state: present
             update_cache: true
 
+        # 🔴 `groups: asterisk` — o painel e o expurgo precisam disso.
+        #
+        # Os diretórios de áudio e de gravação são do usuário `asterisk`, porque é
+        # ele que roda o PBX. Mas quem ESCREVE neles do outro lado é a aplicação: o
+        # painel instala o áudio enviado pelo operador, e o `bin/expurgo.php` apaga
+        # gravação vencida.
+        #
+        # Sem esta linha o expurgo não conseguia apagar NADA — rodava como
+        # `prospecta` contra um diretório `asterisk:asterisk` modo 0750, sem nem
+        # leitura. A gravação era retida para sempre e a coluna era limpa no banco,
+        # deixando disco e banco em desacordo — exatamente o que o dono único da
+        # operação existe para evitar. Verificado nesta máquina.
         - name: Usuário da aplicação
           ansible.builtin.user:
             name: "{{ app_usuario }}"
@@ -29,6 +41,8 @@
             shell: /usr/sbin/nologin
             home: "{{ app_dir }}"
             create_home: false
+            groups: asterisk
+            append: true
 
         - name: Diretório de chaves de repositório
           ansible.builtin.file:
@@ -178,13 +192,25 @@
             - /var/spool/asterisk/dictate
             - /var/spool/asterisk/meetme
 
+        # 🔴 `2770`, e cada dígito importa.
+        #
+        # `770` dá escrita ao GRUPO, e a aplicação está no grupo `asterisk` (ver o
+        # bloco Base). É o que permite o painel instalar áudio e o expurgo apagar
+        # gravação — apagar arquivo exige escrita no DIRETÓRIO, não no arquivo.
+        #
+        # O `2` é setgid, e é o que faz a coisa funcionar nos dois sentidos: arquivo
+        # criado aqui pelo painel HERDA o grupo `asterisk`, então o PBX o lê sem
+        # ninguém precisar chamar chgrp. Sem o setgid, o áudio enviado sairia como
+        # `prospecta:prospecta` e o Asterisk não conseguiria abrir — e o sintoma
+        # seria `PLAYBACKSTATUS=FAILED` com o dialplan CONTINUANDO, ou seja, chamada
+        # muda sem erro visível.
         - name: Diretórios de áudio e gravação
           ansible.builtin.file:
             path: "{{ item }}"
             state: directory
             owner: asterisk
             group: asterisk
-            mode: "0750"
+            mode: "2770"
           loop:
             - "{{ audio_dir }}"
             - "{{ gravacao_dir }}"
