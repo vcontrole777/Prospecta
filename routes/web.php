@@ -6,6 +6,7 @@ use App\Livewire\CampanhaForm;
 use App\Livewire\Audios;
 use App\Livewire\Campanhas;
 use App\Livewire\Configuracao;
+use App\Livewire\Conversas;
 use App\Livewire\ImportarLista;
 use App\Http\Controllers\WebhookWhatsapp;
 use App\Livewire\Integracoes;
@@ -57,6 +58,7 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/audios', Audios::class)->name('audios');
     Route::get('/integracoes', Integracoes::class)->name('integracoes');
+    Route::get('/conversas', Conversas::class)->name('conversas');
     Route::get('/configuracao', Configuracao::class)->name('configuracao');
 
     /*
