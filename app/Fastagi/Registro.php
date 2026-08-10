@@ -57,10 +57,30 @@ final class Registro
         });
     }
 
-    /** @param array<string,scalar|null> $extra */
+    /**
+     * 🔴 `ligacao` no `$extra` VENCE o id do processo.
+     *
+     * Antes era `['ligacao' => $this->ligacaoId, ...] + $extra`, e união de arrays
+     * mantém o valor da ESQUERDA em chave repetida — então um `extra['ligacao']`
+     * era descartado sem aviso. Isso não era teórico: no `bin/expurgo.php`, que
+     * percorre muitas Ligações num processo só e não tem id fixo, a linha de
+     * recusa saía com `"ligacao": null` e perdia exatamente o dado pelo qual a
+     * linha existe — qual Ligação aponta para fora do diretório.
+     *
+     * `evento` e `mensagem` continuam autoritativos: são a identidade da linha, e
+     * deixá-los sobrescrevíveis permitiria um `extra` descuidado renomear o
+     * evento e sumir de qualquer busca no log.
+     *
+     * @param array<string,scalar|null> $extra
+     */
     public function linha(string $evento, string $mensagem, array $extra = []): void
     {
-        $registro = ['ligacao' => $this->ligacaoId, 'evento' => $evento, 'mensagem' => $mensagem] + $extra;
+        $registro = [
+            'ligacao' => $extra['ligacao'] ?? $this->ligacaoId,
+            'evento' => $evento,
+            'mensagem' => $mensagem,
+        ] + $extra;
+
         fwrite($this->saida, json_encode($registro, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
     }
 }

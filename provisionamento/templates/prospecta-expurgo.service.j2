@@ -1,16 +1,27 @@
 [Unit]
 Description=Prospecta — expurgo de gravação
+Documentation=https://github.com/vcontrole777/Prospecta/issues/26
 
 [Service]
 Type=oneshot
 
-# Apaga o ARQUIVO, nunca a linha da Ligação.
+# 🔴 UM comando, um dono.
 #
-# A Ligação aconteceu mesmo que a gravação não exista mais. Perder a linha
-# junto com o arquivo seria perder o CDR por causa de política de disco.
-# A coluna de caminho aceita NULL exatamente para isto.
-ExecStart=/usr/bin/find {{ gravacao_dir }} -type f -mtime +{{ gravacao_retencao_dias }} -delete
-ExecStartPost=/usr/bin/php{{ php_versao }} {{ app_dir }}/bin/expurgo-marcar.php
+# Antes eram dois: `find -delete` no ExecStart e um script de marcação no
+# ExecStartPost. Se o post falhasse — e ele falha sem desfazer o ExecStart — o
+# arquivo já não existia e o banco continuava apontando para ele. O painel
+# ofereceria player para gravação inexistente, e a divergência crescia a cada
+# execução. O script agora apaga E limpa a coluna, na ordem que converge.
+#
+# A retenção vem do .env (PROSPECTA_GRAVACAO_RETENCAO_DIAS), não deste arquivo:
+# duas fontes para o mesmo número divergiriam na primeira mudança.
+ExecStart=/usr/bin/php{{ php_versao }} {{ app_dir }}/bin/expurgo.php
 
 User={{ app_usuario }}
 Group={{ app_usuario }}
+
+# O serviço só precisa escrever no diretório de gravação.
+ProtectSystem=strict
+ReadWritePaths={{ gravacao_dir }}
+PrivateTmp=true
+NoNewPrivileges=true

@@ -26,6 +26,31 @@ mysql_chave_expira: "2027-10-23"
 app_dir: /opt/prospecta
 app_usuario: prospecta
 
+# Banco. O NOME e o USUÁRIO são iguais em toda instância; a senha é por cliente e
+# vive em host_vars, fora do git.
+# Usuário do nginx. Só aparece na propriedade do SOCKET do php-fpm: é quem
+# conecta nele, e não quem executa o PHP. Ver a task do pool em site.yml.
+nginx_usuario: www-data
+
+banco_nome: prospecta
+banco_usuario: prospecta
+
+# Artefato do código, montado na máquina de controle e enviado. `tar` +
+# `unarchive` porque esta instalação só tem ansible.builtin — nem
+# community.general nem ansible.posix — então `synchronize` não é opção.
+artefato_local: /tmp/prospecta-artefato.tar.gz
+
+# 🔴 HTTPS só existe se `dominio` for um NOME. Let's Encrypt não emite
+# certificado para IP nu, e uma instância acessada por IP roda em HTTP.
+#
+# Isso muda duas coisas no .env, e a segunda é uma armadilha cruel:
+# `SESSION_SECURE_COOKIE=true` sobre HTTP faz o navegador NUNCA enviar o cookie de
+# sessão — o login parece dar certo e volta ao formulário, para sempre, sem uma
+# linha de erro em lugar nenhum. Já custou tarde de gente em outros projetos.
+#
+# O teste é "tem letra": nome de domínio sempre tem, IPv4 nunca.
+https_ativo: "{{ dominio is search('[a-zA-Z]') }}"
+
 audio_dir: /var/lib/asterisk/sounds/prospecta
 
 # Áudios de SISTEMA do produto, em pt-BR. Nenhum embutido do Asterisk chega

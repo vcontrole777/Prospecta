@@ -10,6 +10,16 @@
 dominio: cliente-x.exemplo.com
 email_certificado: ops@exemplo.com
 
+# Senha do usuário do banco. Só desta instância.
+banco_senha: SUBSTITUA
+
+# 🔴 GERE UMA VEZ e não mude: `php artisan key:generate --show`
+#
+# Trocar depois invalida toda sessão E torna ilegível todo valor cifrado no banco
+# — as credenciais de fornecedor entre elas. Não é um segredo rotacionável de
+# graça; rotacionar exige recifrar o que já está gravado.
+app_key: base64:SUBSTITUA
+
 # Credenciais do AMI, usadas pelo dialer. Localhost apenas.
 ami_usuario: prospecta
 ami_segredo: SUBSTITUA

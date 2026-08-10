@@ -50,6 +50,10 @@ return [
     // Caminho de gravação derivado do id INTEIRO da Ligação (ADR-0003).
     'gravacao_dir' => $ler('PROSPECTA_GRAVACAO_DIR', '/var/spool/asterisk/gravacoes'),
 
+    // Retenção da gravação, em dias. Lida pelo `bin/expurgo.php`, que apaga o
+    // ARQUIVO e limpa a coluna — nunca a linha da Ligação.
+    'gravacao_retencao_dias' => (int) $ler('PROSPECTA_GRAVACAO_RETENCAO_DIAS', '30'),
+
     // Prefixo de áudio como o Asterisk o resolve, relativo a sounds/.
     'audio_dir' => $ler('PROSPECTA_AUDIO_DIR', 'prospecta'),
 ];

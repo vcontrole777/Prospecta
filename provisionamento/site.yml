@@ -98,9 +98,28 @@
 
         - name: Banco da aplicação
           ansible.builtin.command:
-            cmd: mysql --protocol=socket -e "CREATE DATABASE IF NOT EXISTS prospecta
+            cmd: mysql --protocol=socket -e "CREATE DATABASE IF NOT EXISTS {{ banco_nome }}
                  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
           changed_when: false
+
+        # 🔴 O usuário do banco NÃO existia no playbook. A instância de
+        # desenvolvimento funcionava porque ele foi criado à mão. Numa VPS nova o
+        # painel e o dialer falhariam na conexão com "Access denied", o que manda a
+        # investigação para a senha em vez de para a ausência do usuário.
+        #
+        # `@localhost` e não `@%`: o banco só é acessado da própria máquina.
+        - name: Usuário do banco
+          ansible.builtin.command:
+            cmd: >-
+              mysql --protocol=socket -e
+              "CREATE USER IF NOT EXISTS '{{ banco_usuario }}'@'localhost'
+                 IDENTIFIED BY '{{ banco_senha }}';
+               ALTER USER '{{ banco_usuario }}'@'localhost'
+                 IDENTIFIED BY '{{ banco_senha }}';
+               GRANT ALL PRIVILEGES ON {{ banco_nome }}.* TO '{{ banco_usuario }}'@'localhost';
+               FLUSH PRIVILEGES"
+          changed_when: false
+          no_log: true   # a senha vai no comando
 
     # ------------------------------------------------------------------
     # Artefato, não compilação por cliente: versão IDÊNTICA em todas as
@@ -243,6 +262,249 @@
             state: started
 
     # ------------------------------------------------------------------
+    - name: Avisar quando a instância roda sem HTTPS
+      tags: [deploy, https]
+      when: not (https_ativo | bool)
+      ansible.builtin.debug:
+        msg: >-
+          `dominio` é um IP ({{ dominio }}), então NÃO há HTTPS: o certbot não
+          emite certificado para IP. O .env sai com SESSION_SECURE_COOKIE=false
+          para o login funcionar em HTTP. Isto serve para teste — em produção
+          aponte um nome de domínio para esta máquina e rode o playbook de novo.
+
+    # ------------------------------------------------------------------
+    # 🔴 A APLICAÇÃO. Este bloco não existia: o playbook provisionava a máquina e
+    # nunca entregava o código, então as unidades subiam apontando para arquivos
+    # ausentes e o painel não tinha o que servir. Ver #26.
+    #
+    # Vem ANTES do bloco de unidades de propósito: habilitar serviço cujo script
+    # não existe produz ciclo de falha permanente no journal.
+    - name: Aplicação
+      tags: [deploy]
+      block:
+
+        # Assets vêm PRONTOS da máquina de controle. Node não é instalado na VPS:
+        # nodejs + npm + node_modules é peso considerável para produzir dois
+        # arquivos estáticos que nunca mudam entre clientes.
+        - name: Manifesto dos assets na máquina de controle
+          delegate_to: localhost
+          become: false
+          run_once: true
+          ansible.builtin.stat:
+            path: "{{ playbook_dir }}/../public/build/manifest.json"
+          register: manifesto_assets
+
+        # Falha AQUI, e não em tempo de requisição. Sem o manifesto, `@vite` lança
+        # exceção quando o operador abre o painel — implantação "bem-sucedida" com
+        # produto quebrado, e a mensagem não diz que faltou um passo de build.
+        - name: Exigir os assets construídos
+          delegate_to: localhost
+          become: false
+          run_once: true
+          ansible.builtin.fail:
+            msg: >-
+              public/build/manifest.json não existe. Rode `npm ci && npm run build`
+              na máquina de controle antes do playbook — node não é instalado na
+              VPS de propósito, então o artefato precisa vir pronto.
+          when: not manifesto_assets.stat.exists
+
+        # `tar` e `unarchive` porque só há ansible.builtin nesta instalação: nem
+        # community.general nem ansible.posix estão presentes, então `synchronize`
+        # não é opção.
+        - name: Montar o artefato da aplicação
+          delegate_to: localhost
+          become: false
+          run_once: true
+          ansible.builtin.command:
+            chdir: "{{ playbook_dir }}/.."
+            cmd: >-
+              tar czf {{ artefato_local }}
+              --exclude=./.git
+              --exclude=./node_modules
+              --exclude=./vendor
+              --exclude=./.env
+              --exclude=./tests
+              --exclude=./provisionamento
+              --exclude=./storage/logs
+              --exclude=./storage/framework/cache
+              --exclude=./storage/framework/sessions
+              --exclude=./storage/framework/views
+              .
+          changed_when: true
+
+        # 0755, não 0750. O nginx roda como www-data e precisa ATRAVESSAR o
+        # diretório e ler `public/` para servir os assets. Com 0750 de
+        # prospecta:prospecta o CSS e o JS voltariam 403, e a página chegaria sem
+        # estilo nenhum — sintoma que não sugere permissão.
+        #
+        # O código não é segredo. O segredo é o `.env`, e ele fica 0640 mais
+        # abaixo, legível só pelo php-fpm, que agora roda como a aplicação.
+        - name: Diretório da aplicação
+          ansible.builtin.file:
+            path: "{{ app_dir }}"
+            state: directory
+            owner: "{{ app_usuario }}"
+            group: "{{ app_usuario }}"
+            mode: "0755"
+
+        # LIMITAÇÃO CONHECIDA: `unarchive` sobrepõe, não sincroniza — arquivo
+        # removido do repositório permanece na VPS. Para o v1 é aceitável porque
+        # nada no produto varre diretório em busca de código. Se isso mudar, este
+        # passo precisa apagar antes de extrair.
+        - name: Enviar e extrair o código
+          ansible.builtin.unarchive:
+            src: "{{ artefato_local }}"
+            dest: "{{ app_dir }}"
+            owner: "{{ app_usuario }}"
+            group: "{{ app_usuario }}"
+
+        # 🔴 ANTES do composer, e a ordem é o conserto de uma falha real.
+        #
+        # `composer install` dispara `artisan package:discover`, que precisa de
+        # `storage/framework/views`. O `tar --exclude` acima remove o DIRETÓRIO, não
+        # só o conteúdo — a intenção era não enviar cache de desenvolvimento, e o
+        # efeito foi entregar uma árvore sem os diretórios de estado. O composer
+        # morria com "Please provide a valid cache path.", mensagem que não diz que
+        # falta um diretório nem qual.
+        - name: Esqueleto de diretórios de estado
+          ansible.builtin.file:
+            path: "{{ app_dir }}/{{ item }}"
+            state: directory
+            owner: "{{ app_usuario }}"
+            group: "{{ app_usuario }}"
+            mode: "0755"
+          loop:
+            - storage
+            - storage/app
+            - storage/app/private
+            - storage/app/public
+            - storage/framework
+            - storage/framework/cache
+            - storage/framework/cache/data
+            - storage/framework/sessions
+            - storage/framework/views
+            - storage/logs
+            - bootstrap/cache
+
+        - name: Composer
+          ansible.builtin.apt:
+            name: composer
+            state: present
+
+        # Roda como root e o dono é corrigido depois. `become_user` para uma conta
+        # com shell nologin é mais superfície de falha do que o chown resolve.
+        - name: Dependências de produção
+          ansible.builtin.command:
+            chdir: "{{ app_dir }}"
+            cmd: >-
+              composer install --no-dev --optimize-autoloader
+              --no-interaction --no-progress
+          environment:
+            COMPOSER_ALLOW_SUPERUSER: "1"
+          changed_when: true
+
+        # 🔴 O php-fpm passa a rodar como a conta da aplicação.
+        #
+        # O pool padrão roda como www-data, e as unidades do systemd rodam como
+        # `app_usuario`. Com duas identidades, o painel não leria o `.env` (0640) nem
+        # escreveria em `storage/` — e o sintoma seria 500 na primeira requisição,
+        # com "Permission denied" num caminho de cache que não sugere a causa.
+        #
+        # Uma identidade só é mais simples que compartilhar grupo entre as duas.
+        # 🔴 DUAS identidades diferentes aqui, e confundi-las dá 502.
+        #
+        # `user`/`group`  = quem EXECUTA o PHP. Tem que ser a aplicação, senão o
+        #                   painel não lê o .env (0640) nem escreve em storage/.
+        # `listen.*`      = quem pode CONECTAR no socket. Tem que ser o nginx.
+        #
+        # Pus `listen.owner = prospecta` na primeira versão e o nginx passou a
+        # receber "Permission denied" no socket: 502 em toda página PHP, enquanto os
+        # assets estáticos continuavam 200 — o que faz parecer problema de PHP, não
+        # de permissão de socket. Medido nesta máquina.
+        - name: Pool do php-fpm — identidade de execução e do socket
+          ansible.builtin.lineinfile:
+            path: "/etc/php/{{ php_versao }}/fpm/pool.d/www.conf"
+            regexp: "^{{ item.chave }} *="
+            line: "{{ item.chave }} = {{ item.valor }}"
+          loop:
+            - {chave: "user", valor: "{{ app_usuario }}"}
+            - {chave: "group", valor: "{{ app_usuario }}"}
+            - {chave: "listen.owner", valor: "{{ nginx_usuario }}"}
+            - {chave: "listen.group", valor: "{{ nginx_usuario }}"}
+          notify: Reiniciar o php-fpm
+
+        - name: Configuração de execução (.env)
+          ansible.builtin.template:
+            src: templates/env.j2
+            dest: "{{ app_dir }}/.env"
+            owner: "{{ app_usuario }}"
+            group: "{{ app_usuario }}"
+            mode: "0640"
+          no_log: true   # o arquivo tem senha de banco e segredo do AMI
+
+        # O composer roda como root, então `vendor/` nasce de root. Sem isto o
+        # `artisan optimize` não escreveria o cache e o painel falharia na primeira
+        # requisição — como usuário da aplicação, não como root.
+        - name: Dono do código
+          ansible.builtin.file:
+            path: "{{ app_dir }}"
+            state: directory
+            owner: "{{ app_usuario }}"
+            group: "{{ app_usuario }}"
+            recurse: true
+
+        - name: Migrações
+          ansible.builtin.command:
+            chdir: "{{ app_dir }}"
+            cmd: "php{{ php_versao }} artisan migrate --force --no-interaction"
+          register: migracoes
+          changed_when: "'Nothing to migrate' not in migracoes.stdout"
+
+        # Cache de configuração, rota e view. Seguro aqui porque os processos de
+        # chamada NÃO leem a configuração pelo framework: `config/dialer.php` e
+        # `config/fastagi.php` são lidos direto, com getenv (ADR-0001).
+        - name: Otimizar o framework
+          ansible.builtin.command:
+            chdir: "{{ app_dir }}"
+            cmd: "php{{ php_versao }} artisan optimize"
+          changed_when: true
+
+        # 🔴 DESCARREGAR OS HANDLERS ANTES DO PORTÃO ABAIXO.
+        #
+        # O Ansible executa handlers no fim da play, e NÃO os executa para um host
+        # que falhou. Como a checagem de operador abaixo falha de propósito numa
+        # instância nova, o reinício do php-fpm ficava pendente para sempre.
+        #
+        # E o modo de falhar é traiçoeiro: o arquivo do pool já dizia
+        # `user = prospecta` — então quem inspecionasse concluiria que estava
+        # aplicado — enquanto os workers continuavam como www-data. Na execução
+        # seguinte a task sai `ok`, sem mudança e sem notificar o handler, então o
+        # reinício NUNCA aconteceria. Medido nesta máquina.
+        - name: Aplicar reinícios pendentes antes de checar o operador
+          ansible.builtin.meta: flush_handlers
+
+        # 🔴 Sem operador, ninguém entra — e isso NÃO é implantação concluída.
+        #
+        # O comando não é rodado pelo playbook de propósito: `--senha` colocaria a
+        # senha em host_vars, num arquivo no disco da máquina de controle e no
+        # `ps` da VPS. O modo interativo pede sem eco, e é uma vez por instância.
+        - name: Contar operadores cadastrados
+          ansible.builtin.command:
+            cmd: "mysql --protocol=socket -N -B {{ banco_nome }} -e \"SELECT COUNT(*) FROM users\""
+          register: operadores
+          changed_when: false
+
+        - name: Exigir um operador cadastrado
+          ansible.builtin.fail:
+            msg: >-
+              Nenhum operador cadastrado — o painel está de pé e ninguém consegue
+              entrar. Rode na VPS, uma vez:
+              sudo -u {{ app_usuario }} php{{ php_versao }} {{ app_dir }}/artisan
+              prospecta:operador seu@email.com
+              A senha é pedida sem eco; mínimo de 12 caracteres.
+          when: operadores.stdout | trim | int == 0
+
+    # ------------------------------------------------------------------
     - name: Unidades do Prospecta
       tags: [app]
       block:
@@ -256,7 +518,6 @@
             - prospecta-fastagi.socket
             - prospecta-fastagi@.service
             - prospecta-dialer.service
-            - prospecta-worker.service
             - prospecta-expurgo.service
             - prospecta-expurgo.timer
           notify: Recarregar o systemd
@@ -268,7 +529,14 @@
             state: started
             daemon_reload: true
 
-        # dialer e worker são serviços PERSISTENTES, não cron.
+        # 🔴 `prospecta-worker.service` FORA daqui e da lista de templates.
+        #
+        # O `bin/worker.php` ainda não existe, e a unidade estava sendo instalada E
+        # habilitada — numa VPS nova ela entraria em ciclo de falha com "No such
+        # file or directory", ruído permanente no journal que esconde problema
+        # real. Volta junto com o script. Ver #26.
+        #
+        # O dialer é serviço PERSISTENTE, não cron.
         # O ADR-0005 trocou o ritmo para malha fechada, e taxa realimentada
         # quer processo contínuo. Efeito colateral bom: o systemd garante
         # instância única, então a trava de arquivo deixa de ser necessária.
@@ -280,7 +548,6 @@
             daemon_reload: true
           loop:
             - prospecta-dialer.service
-            - prospecta-worker.service
 
         - name: Temporizador de expurgo de gravação habilitado
           ansible.builtin.systemd:
@@ -322,8 +589,12 @@
     # sem isto o webhook do WhatsApp não pode ser cadastrado (#24).
     #
     # Se o DNS ainda não propagou: --skip-tags https, e volte depois.
+    # Condicionado a `dominio` ser um NOME: o certbot RECUSA endereço IP, e com o
+    # `creates:` abaixo a task falharia em toda execução do playbook numa instância
+    # acessada por IP. Ver `https_ativo` em group_vars/all.yml.
     - name: HTTPS
       tags: [https]
+      when: https_ativo | bool
       block:
 
         - name: Certbot
@@ -374,6 +645,11 @@
       ansible.builtin.command:
         cmd: asterisk -rx "module reload res_rtp_asterisk.so"
       changed_when: true
+
+    - name: Reiniciar o php-fpm
+      ansible.builtin.systemd:
+        name: "php{{ php_versao }}-fpm"
+        state: restarted
 
     - name: Recarregar o nginx
       ansible.builtin.systemd:
