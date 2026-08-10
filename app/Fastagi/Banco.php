@@ -21,9 +21,16 @@ final class Banco
 {
     private ?PDO $pdo = null;
 
-    /** @param array{dsn:string,usuario:string,senha:string} $conf */
-    public function __construct(private array $conf)
-    {
+    /**
+     * @param array{dsn:string,usuario:string,senha:string} $conf
+     * @param Registro|null $log opcional: o `Banco` é usado em teste sem log, e a
+     *        ausência dele não deve mudar o comportamento das consultas — só silenciar
+     *        o aviso de configuração ausente.
+     */
+    public function __construct(
+        private array $conf,
+        private ?Registro $log = null,
+    ) {
     }
 
     private function pdo(): PDO
@@ -68,7 +75,18 @@ final class Banco
             LEFT JOIN audio ai     ON ai.id = c.audio_confirma_opt_in_id
             LEFT JOIN audio ao     ON ao.id = c.audio_confirma_opt_out_id
             LEFT JOIN audio an     ON an.id = c.audio_nao_entendi_id
-            CROSS JOIN configuracao g
+            -- 🔴 LEFT JOIN, não CROSS JOIN.
+            --
+            -- `configuracao` é linha única e uma migration a semeia. Mas CROSS JOIN
+            -- com a tabela VAZIA devolve ZERO linhas, e então esta consulta falhava
+            -- para TODA chamada de uma instância recém-migrada — lançando "Ligação
+            -- não encontrada" sobre uma Ligação que existe.
+            --
+            -- Com LEFT JOIN, linha ausente degrada para `gravacao_ativa` nulo em vez
+            -- de matar a chamada. A chamada acontece; o que se perde é a gravação, e
+            -- a ausência é registrada nomeando a causa. É a ordem certa de
+            -- prioridade: a chamada é o produto.
+            LEFT JOIN configuracao g ON g.id = 1
             WHERE l.id = :id
             LIMIT 1
         SQL;
@@ -78,7 +96,20 @@ final class Banco
         $linha = $st->fetch();
 
         if (! is_array($linha)) {
+            // Agora esta mensagem é verdadeira: com LEFT JOIN, zero linhas significa
+            // que a Ligação de fato não existe.
             throw new \RuntimeException("Ligação {$ligacaoId} não encontrada");
+        }
+
+        // A configuração global está ausente? Não impede a chamada, mas precisa
+        // aparecer com o nome do problema — senão o sintoma seria "a gravação parou
+        // de funcionar" sem ninguém saber por quê.
+        if (($linha['gravacao_ativa'] ?? null) === null) {
+            $this->log?->linha(
+                'configuracao_ausente',
+                'a linha única de `configuracao` não existe; seguindo sem gravação',
+                ['ligacao' => $ligacaoId],
+            );
         }
 
         return new Dados(

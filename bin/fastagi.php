@@ -53,7 +53,7 @@ $log->ligacao($ligacaoId);
 $log->linha('inicio', 'handler iniciado', ['canal' => $ambiente['agi_channel'] ?? '?']);
 
 $conf = require dirname(__DIR__) . '/config/fastagi.php';
-$banco = new Banco($conf['banco']);
+$banco = new Banco($conf['banco'], $log);
 $resultado = new Resultado();
 
 try {
