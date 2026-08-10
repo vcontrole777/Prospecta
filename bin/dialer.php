@@ -22,6 +22,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 use App\Dialer\Acao;
 use App\Dialer\Ami;
 use App\Dialer\Fila;
+use App\Dialer\Janela;
 use App\Dialer\Politica;
 use App\Dialer\Protecao;
 use App\Dialer\Ritmo;
@@ -98,6 +99,13 @@ foreach ([SIGTERM, SIGINT] as $sinal) {
 }
 
 $ultimaReconciliacao = 0;
+
+/**
+ * Estado anterior do Horário de Trabalho, para registrar só a TRANSIÇÃO. `null` no começo faz a
+ * primeira volta registrar o estado inicial, que é a informação que o operador quer
+ * ao subir o serviço.
+ */
+$janelaAnterior = null;
 
 while ($rodando) {
     pcntl_signal_dispatch();
@@ -206,6 +214,46 @@ while ($rodando) {
 
     if ($lidos >= $conf['eventos_por_volta']) {
         $log->linha('eventos', 'teto da volta atingido; o resto fica para a próxima', ['lidos' => $lidos]);
+    }
+
+    // ---- Horário de Trabalho ------------------------------------------------
+    //
+    // 🔴 GOVERNA ORIGINAÇÃO, NÃO CHAMADA EM VOO. Quem atendeu às 17h59 termina a
+    // conversa; cortar no relógio seria desligar na cara de quem estava falando, e
+    // ainda gastaria o Lead com um desfecho que não é dele. O laço de eventos acima
+    // continua rodando por isso — as chamadas em voo precisam ser reconciliadas.
+    //
+    // Reavaliado a cada volta, e não uma vez no início: o serviço é persistente e
+    // atravessa o fechamento.
+    // 🔴 `$horarioDeTrabalho`, NÃO `$janela`. A variável `$janela` já existe neste
+    // arquivo e guarda a janela deslizante da PROTEÇÃO DE TRONCO, por Campanha.
+    // Escrevi `$janela = $fila->janelaDeTrabalho()` na primeira versão e destruí
+    // aquele array a cada volta — o que faria `$janela[$campanhaId]` lançar
+    // "Cannot use object of type Janela as array" na primeira originação.
+    //
+    // O PHPStan nível 9 NÃO pegou: reatribuição dentro do laço escapa da análise de
+    // fluxo dele. Num script procedural longo, nome reaproveitado é armadilha real.
+    $horarioDeTrabalho = $fila->janelaDeTrabalho();
+    $agora = new DateTimeImmutable('now', new DateTimeZone($conf['fuso']));
+    $abertaAgora = $horarioDeTrabalho->aberta($agora);
+
+    if ($abertaAgora !== $janelaAnterior) {
+        // UMA linha por transição, não por volta. Registrar a cada volta encheria o
+        // log de "fora do horário" a cada segundo durante a noite inteira, e o log
+        // deixaria de servir para achar problema.
+        $log->linha(
+            $abertaAgora ? 'janela_aberta' : 'janela_fechada',
+            $abertaAgora ? 'dentro do Horário de Trabalho, originando' : 'fora do Horário de Trabalho, sem originar',
+            ['horario' => $horarioDeTrabalho->descricao(), 'agora' => $agora->format('D H:i')],
+        );
+        $janelaAnterior = $abertaAgora;
+    }
+
+    if (! $abertaAgora) {
+        // Dorme e volta. As Ligações em voo seguem sendo acompanhadas na volta
+        // seguinte, porque o laço de eventos vem antes deste ponto.
+        usleep((int) ($conf['intervalo_seg'] * 1_000_000));
+        continue;
     }
 
     // ---- origina -----------------------------------------------------------

@@ -66,6 +66,11 @@ return [
     'max_tentativas_padrao' => (int) $ler('PROSPECTA_MAX_TENTATIVAS', '3'),
 
     'tecnologia' => 'PJSIP',
+    // 🔴 Fuso EXPLÍCITO para o Horário de Trabalho. Sem ele o PHP usa UTC e a janela
+    // de 09h às 18h vira 06h às 15h no Brasil — a discadora para às 15h e começa às
+    // 6h da manhã, com a tela mostrando o horário certo.
+    'fuso' => $ler('APP_TIMEZONE', 'America/Sao_Paulo'),
+
     'tronco' => $ler('PROSPECTA_TRONCO', 'idt'),
     // Prefixo técnico é SELEÇÃO DE CAPACIDADE: na IDT, CallerID e DTMF só
     // funcionam na rota Platinum. Em rota mais barata os dois falham em silêncio.

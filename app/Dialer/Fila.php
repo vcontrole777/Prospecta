@@ -226,6 +226,48 @@ final class Fila
         return $st->rowCount();
     }
 
+    /**
+     * O Horário de Trabalho configurado. GLOBAL, como a gravação — não é por
+     * Campanha.
+     *
+     * As três colunas existiam e nada as lia: o produto prometia horário e discava 24
+     * horas por dia, sete dias por semana. Coluna nula devolve janela sem restrição,
+     * que é o comportamento de antes — a restrição passa a existir só quando alguém a
+     * configura.
+     */
+    public function janelaDeTrabalho(): Janela
+    {
+        $st = $this->pdo->query('SELECT horario_inicio, horario_fim, dias_semana FROM configuracao WHERE id = 1');
+        if ($st === false) {
+            return new Janela();
+        }
+
+        $linha = $st->fetch();
+        if (! is_array($linha)) {
+            return new Janela();
+        }
+
+        $dias = null;
+        $json = $linha['dias_semana'] ?? null;
+        if (is_string($json)) {
+            $lido = json_decode($json, true);
+            if (is_array($lido)) {
+                $dias = [];
+                foreach ($lido as $d) {
+                    if (is_numeric($d) && (int) $d >= 1 && (int) $d <= 7) {
+                        $dias[] = (int) $d;
+                    }
+                }
+            }
+        }
+
+        return new Janela(
+            is_string($linha['horario_inicio'] ?? null) ? $linha['horario_inicio'] : null,
+            is_string($linha['horario_fim'] ?? null) ? $linha['horario_fim'] : null,
+            $dias,
+        );
+    }
+
     /** @return list<array{id:int,contratado:int,max_tentativas:int,bina:?string,bina_regra:string,timeout_toque:int}> */
     public function campanhasAtivas(int $canaisContratados): array
     {
