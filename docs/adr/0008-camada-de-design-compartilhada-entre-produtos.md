@@ -36,7 +36,7 @@ A disciplina é a mesma do ADR-0006 por um motivo análogo: a classe compartilha
 
 - A tela de chamadas online é o ponto duro, e é comum à família: `wire:poll` de 1 s sobre 200 Ligações ativas re-renderiza 200 linhas por segundo. A solução — componente estreito que devolve só o que mudou, ou SSE se o polling não segurar — deve ser decidida pensando nos três produtos e resolvida uma vez. Resolver três vezes, diferente em cada um, é a divergência que o MagnusBilling documenta com as duas classes `SearchTariff`.
 - Componentes que nomeiam conceito de domínio usam o termo do `CONTEXT.md`. Um badge chamado `<x-status-ligacao>` carrega o glossário para dentro da interface.
-- **REVERTIDO — o kit pronto entra: adotamos Flux.** Ver a seção "Reversão sobre kit pronto" abaixo.
+- **REVERTIDO — o kit pronto entra: adotamos Mary UI.** Ver a seção "Reversão sobre kit pronto" abaixo.
 
 ## O que "não genérico" significa aqui
 
@@ -47,7 +47,7 @@ Quatro escolhas carregam a identidade, e nenhuma delas vem de biblioteca:
 3. **Densidade deliberada.** O produto é dado denso por natureza (CDR, monitor de canais); kits são espaçosos porque servem app de marketing. Denso e calmo é o registro correto e é funcionalmente melhor aqui.
 4. **Modo escuro como padrão, claro como alternativa.** O operador acompanha o monitor ao vivo por horas.
 
-## Reversão sobre kit pronto — adotamos Flux
+## Reversão sobre kit pronto — adotamos Mary UI
 
 **Posição anterior:** kit pronto descartado, porque "adotar o kit no botão e no input já entrega o registro visual do kit".
 
@@ -60,20 +60,51 @@ Quatro escolhas carregam a identidade, e nenhuma delas vem de biblioteca:
 | Algarismo tabular, zero cortado | tokens |
 | Badge de estado de Ligação, duração, código SIP, telefone formatado | **nosso, sempre** |
 
-O que o Flux entrega — formulário, modal, dropdown, tabela com ordenação, paleta de comandos — é o 80% onde o tempo vai e onde a identidade **não** está. Construir isso do zero seriam semanas e uma superfície de manutenção permanente, contra a preferência declarada de escopo mínimo.
+O que um kit entrega — formulário, modal, dropdown, tabela com ordenação, calendário — é o 80% onde o tempo vai e onde a identidade **não** está. Construir isso do zero seriam semanas e uma superfície de manutenção permanente, contra a preferência declarada de escopo mínimo.
 
-**Decisão:** Flux para a camada genérica, nossa camada de override impondo o registro, e o vocabulário de telefonia construído por nós.
+**Decisão:** **Mary UI** (`robsontenorio/mary`, **MIT**) para a camada genérica, o tema impondo o registro, e o vocabulário de telefonia construído por nós.
 
-### Onde o Flux briga com o registro, e por que é barato
+Flux foi considerado primeiro e descartado por ser pago — e a troca saiu **melhor**, não só mais barata, nos dois pontos que estavam marcados como "confirmar antes de pagar".
 
-Kit moderno usa **canto arredondado e sombra** — exatamente as duas coisas que o registro suíço rejeita. Mas são **duas propriedades num lugar só**, override global, não briga componente por componente. Densidade sai da escala de espaço, que já está nos tokens.
+### O registro suíço é a API DE TEMA do daisyUI, não um override
 
-É por isso que a ausência de tokens de sombra neste arquivo deixa de ser só higiene e passa a ser carga: é a camada de override que impede a sombra do kit de voltar.
+Mary UI não traz CSS próprio: ele apoia em **daisyUI**. E o daisyUI 5 expõe exatamente as alavancas do registro como variáveis de tema:
 
-### Duas coisas a confirmar, que não bloqueiam a decisão
+```css
+--radius-selector: 0;   --depth: 0;     --border: 1px;
+--radius-field: 0;      --noise: 0;
+--radius-box: 0;
+```
 
-1. **O Flux aceita a nossa paleta?** Se ele resolve cor por variável CSS, os tokens plugam. Se usa classe utilitária fixa, retematizar custa mais — e a nossa espinha neutra tem viés roxo, não é a neutra padrão de kit.
-2. **A licença cobre N instâncias autohospedadas?** O produto é vendido com uma VPS por cliente. Confirmar por escrito antes de comprar, não depois de dez clientes.
+Canto reto e ausência de sombra deixam de ser luta contra a biblioteca e passam a ser **configuração dela**. Verificado no CSS compilado: os seis valores chegam nos dois temas.
+
+Isso promove a ausência de tokens de sombra de higiene a **carga estrutural** — é o tema que impede a sombra do kit de voltar.
+
+### O tema DERIVA dos nossos tokens, nunca duplica
+
+Toda cor do tema é `var()` apontando para `design/tokens.css`, jamais literal:
+
+```css
+--color-base-100: var(--bg-base);
+--color-primary:  var(--accent);
+--color-error:    var(--fail);
+```
+
+É a lição "regra duplicada sempre diverge" aplicada à camada de design. Se a cor fosse escrita duas vezes, uma nos tokens e outra no tema, elas divergiriam na primeira mudança — e o sintoma seria uma tela quase certa, que é o pior tipo de defeito visual. Verificado: o CSS compilado emite as referências `var()`, e o navegador resolve em execução.
+
+### 🔴 Os nomes de tema TÊM que casar com o atributo que os tokens usam
+
+`design/tokens.css` chaveia o tema claro por `[data-theme="light"]` e guarda o escuro por `:not([data-theme="dark"])`. O daisyUI lê **o mesmo atributo**.
+
+Com nomes diferentes — por exemplo `prospecta` e `prospecta-claro` — alternar o tema mudaria o daisyUI e deixaria os nossos tokens no outro, e o `var()` dele resolveria para a cor errada: **painel metade claro, metade escuro**. Por isso os temas se chamam `dark` e `light`.
+
+### Risco nomeado
+
+daisyUI é dependência transitiva, e a API de tema dele **mudou entre a v4 e a v5** (`--p`/`--b1` viraram `--color-primary`/`--color-base-100`). Um salto de major quebraria o tema. Fixado em `^5` no `package.json`, o que exclui major automático.
+
+### Também removido: pipeline de fonte remota
+
+O esqueleto do Laravel 13 buscava Instrument Sans de CDN em tempo de build. Removido por duas razões: contraria a escolha da linhagem Helvetica como canônica do registro, e um build que precisa de egresso é um build que falha na hora errada — com uma VPS por cliente, isso importa.
 
 ## Registro e paleta
 

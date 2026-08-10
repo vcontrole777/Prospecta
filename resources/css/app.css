@@ -1,9 +1,128 @@
 @import 'tailwindcss';
 
+/* Os tokens do produto. Fonte única de verdade para cor, tipo, espaço e régua.
+   Artefato compartilhado entre os produtos de telefonia da empresa (ADR-0008). */
+@import '../../design/tokens.css';
+
+/* Os 70 componentes do Mary UI definem o HTML em PHP, não em .blade.php.
+   Sem este @source o Tailwind poda as classes deles. */
+@source '../../vendor/robsontenorio/mary/src/View/Components/**/*.php';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
-@theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+/* ============================================================
+   daisyUI — a camada genérica sob o Mary UI
+   Nenhum tema padrão: só o nosso, para não haver duas verdades
+   sobre cor no projeto.
+   ============================================================ */
+@plugin "daisyui" {
+  themes: false;
+}
+
+/* ============================================================
+   Tema Prospecta — registro suíço / industrial, escuro
+   TODA cor aqui é var() dos nossos tokens, NUNCA literal.
+   Isso é a lição "regra duplicada sempre diverge" aplicada à
+   camada de design: se a cor fosse escrita duas vezes, uma em
+   tokens.css e outra aqui, elas divergiriam na primeira mudança.
+   ============================================================ */
+@plugin "daisyui/theme" {
+  /* NOME "dark", não "prospecta": o tokens.css chaveia o tema claro por
+     [data-theme="light"] e guarda o escuro por :not([data-theme="dark"]).
+     Os dois sistemas leem O MESMO atributo, então os nomes TÊM que
+     coincidir — com nomes diferentes, alternar o tema mudaria o daisyUI e
+     deixaria os nossos tokens no outro, e o var() dele resolveria para a
+     cor errada. Painel metade claro, metade escuro. */
+  name: "dark";
+  default: true;
+  color-scheme: dark;
+
+  /* ---- Superfícies e texto ---- */
+  --color-base-100: var(--bg-base);
+  --color-base-200: var(--bg-surface);
+  --color-base-300: var(--bg-raised);
+  --color-base-content: var(--ink-primary);
+
+  /* ---- Acento: UM significado só, "isto importa / isto está vivo" ----
+     Opt-in, foco, seleção, item ativo da navegação. Nada além. */
+  --color-primary: var(--accent);
+  --color-primary-content: var(--accent-ink);
+
+  /* Secundário e accent do daisyUI apontam para o MESMO acento de propósito.
+     A regra de escassez do ADR-0008 não permite um terceiro tom no cromo —
+     e deixá-los no padrão do daisyUI traria cores que não são nossas. */
+  --color-secondary: var(--accent);
+  --color-secondary-content: var(--accent-ink);
+  --color-accent: var(--accent);
+  --color-accent-content: var(--accent-ink);
+
+  --color-neutral: var(--bg-raised);
+  --color-neutral-content: var(--ink-body);
+
+  /* ---- Semânticas ----
+     info e success apontam para o acento, não para azul e verde de kit:
+     o registro é quase monocromático e só falha ganha cor própria.
+     warning existe porque o painel precisa distinguir "a Meta recusou
+     entregar" de "deu erro" — ver acao.status = limite_destinatario. */
+  --color-info: var(--accent);
+  --color-info-content: var(--accent-ink);
+  --color-success: var(--accent);
+  --color-success-content: var(--accent-ink);
+  --color-warning: var(--color-chart-3);
+  --color-warning-content: var(--bg-base);
+  --color-error: var(--fail);
+  --color-error-content: var(--bg-base);
+
+  /* ---- Registro suíço, em cinco variáveis ----
+     Estas são a razão pela qual adotar kit pronto ficou barato: canto reto
+     e ausência de sombra são a API DE TEMA do daisyUI, não override contra
+     a biblioteca. */
+  --radius-selector: 0;
+  --radius-field: 0;
+  --radius-box: 0;
+  --depth: 0;
+  --noise: 0;
+
+  /* A régua é o elemento estrutural do registro, no lugar da sombra. */
+  --border: 1px;
+}
+
+/* ============================================================
+   Tema claro — a paleta clara é QUENTE (creme), ao contrário da
+   escura, que é fria. Cada uma é coerente internamente.
+   ============================================================ */
+@plugin "daisyui/theme" {
+  name: "light";   /* casa com [data-theme="light"] do tokens.css */
+  color-scheme: light;
+
+  --color-base-100: var(--color-l-bg);
+  --color-base-200: var(--color-l-surface);
+  --color-base-300: var(--color-l-raised);
+  --color-base-content: var(--color-l-ink);
+
+  --color-primary: var(--color-accent-light);
+  --color-primary-content: var(--color-l-bg);
+  --color-secondary: var(--color-accent-light);
+  --color-secondary-content: var(--color-l-bg);
+  --color-accent: var(--color-accent-light);
+  --color-accent-content: var(--color-l-bg);
+
+  --color-neutral: var(--color-l-raised);
+  --color-neutral-content: var(--color-l-ink-2);
+
+  --color-info: var(--color-accent-light);
+  --color-info-content: var(--color-l-bg);
+  --color-success: var(--color-accent-light);
+  --color-success-content: var(--color-l-bg);
+  --color-warning: var(--color-chart-3-light);
+  --color-warning-content: var(--color-l-bg);
+  --color-error: var(--color-fail-light);
+  --color-error-content: var(--color-l-bg);
+
+  --radius-selector: 0;
+  --radius-field: 0;
+  --radius-box: 0;
+  --depth: 0;
+  --noise: 0;
+  --border: 1px;
 }
