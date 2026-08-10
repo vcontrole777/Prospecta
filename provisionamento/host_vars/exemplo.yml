@@ -10,6 +10,10 @@
 dominio: cliente-x.exemplo.com
 email_certificado: ops@exemplo.com
 
+# Credenciais do AMI, usadas pelo dialer. Localhost apenas.
+ami_usuario: prospecta
+ami_segredo: SUBSTITUA
+
 # Quantidade de canais contratada. É o limite do produto, e o dialer respeita.
 canais_contratados: 60
 

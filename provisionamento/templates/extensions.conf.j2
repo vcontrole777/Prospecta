@@ -1,0 +1,49 @@
+; Gerado pelo Ansible. Dialplan de PRODUÇÃO do Prospecta.
+;
+; Este arquivo é o elo entre o `dialer` e o `fastagi`: o dialer origina para
+; [prospecta-saida] passando LIGACAO, e este contexto entrega o controle ao
+; handler.
+;
+; 🔴 O NOME DO CONTEXTO É LOAD-BEARING. Medido em teste de integração: se o
+; contexto não existir, o Asterisk recusa o Originate de forma SÍNCRONA com
+; "Extension does not exist." e não manda evento nenhum. O dialer agora verifica
+; a resposta, mas um contexto mal escrito ainda pararia 100% das chamadas — só
+; que agora com log e com a Campanha pausada pela proteção.
+
+[general]
+static=yes
+writeprotect=no
+clearglobalvars=no
+
+[globals]
+
+; ------------------------------------------------------------------
+; Saída: uma perna só. Atende, toca a Mensagem, lê a tecla.
+; Não há ponte em nenhum momento — é por isso que o MixMonitor do handler
+; NÃO pode levar a opção `b`.
+; ------------------------------------------------------------------
+[prospecta-saida]
+exten => s,1,NoOp(=== Prospecta · Ligacao ${LIGACAO} ===)
+ ; A limpeza é do gancho de desligamento, não do handler: o canal pode já ter
+ ; ido embora quando o handler tentaria limpar (ADR-0007). É também onde o
+ ; código SIP é capturado com certeza.
+ same => n,Set(CHANNEL(hangup_handler_push)=prospecta-h,s,1)
+ same => n,AGI(agi://{{ fastagi_host }}:{{ fastagi_porta }}/fastagi,${LIGACAO})
+ same => n,Hangup()
+
+; ------------------------------------------------------------------
+; Gancho de desligamento. Roda mesmo quando o canal morre no meio.
+; ------------------------------------------------------------------
+[prospecta-h]
+exten => s,1,NoOp(=== hangup handler · Ligacao ${LIGACAO} ===)
+ ; TechCause exige Asterisk >= 22.7.0 — é o piso de versão do produto.
+ same => n,Set(CDR(p_tech)=${HANGUPCAUSE(${CHANNEL},tech)})
+ same => n,Set(CDR(p_ast)=${HANGUPCAUSE(${CHANNEL},ast)})
+ same => n,Return()
+
+; ------------------------------------------------------------------
+; Entrada: o produto não recebe chamada. Desliga em vez de deixar cair em
+; contexto padrão, que é superfície desnecessária.
+; ------------------------------------------------------------------
+[prospecta-entrada]
+exten => _X.,1,Hangup()

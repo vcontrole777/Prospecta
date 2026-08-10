@@ -44,6 +44,7 @@ gravacao_retencao_dias: 30
 
 # FastAGI por ativação de socket do systemd.
 fastagi_porta: 4573
+fastagi_host: 127.0.0.1
 fastagi_max_conexoes: 512   # o PADRÃO do systemd é 64 — ver comentário na unidade
 
 # Faixa de RTP. Dimensione para o número de canais contratados com folga.

@@ -1,0 +1,22 @@
+; Gerado pelo Ansible.
+;
+; O `dialer` fala AMI: origina com Async e ChannelId, e lê DialEnd e Hangup.
+; Sem isto o serviço não sobe — e essa dependência não estava no
+; provisionamento até o dialer existir.
+
+[general]
+enabled = yes
+port = 5038
+; SÓ localhost. O dialer roda na mesma máquina, e AMI exposto na rede é
+; superfície de ataque sem nenhum ganho aqui.
+bindaddr = 127.0.0.1
+
+[{{ ami_usuario }}]
+secret = {{ ami_segredo }}
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.255
+
+; Escrita: originar e recarregar. Leitura: os eventos de chamada.
+; `originate` é o que permite discar; `call` é o que traz DialEnd com TechCause.
+read = system,call,agent,user,dialplan
+write = system,call,originate,reporting

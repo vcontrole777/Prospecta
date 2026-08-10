@@ -203,6 +203,30 @@
             mode: "0640"
           notify: Recarregar o pjsip
 
+        # O elo entre o dialer e o fastagi. Sem este contexto o Asterisk recusa
+        # o Originate — e a recusa vem SEM evento nenhum depois, então o Lead
+        # ficaria parado sem diagnóstico. Ver o tratamento da resposta em
+        # bin/dialer.php.
+        - name: Dialplan de produção
+          ansible.builtin.template:
+            src: templates/extensions.conf.j2
+            dest: /etc/asterisk/extensions.conf
+            owner: asterisk
+            group: asterisk
+            mode: "0640"
+          notify: Recarregar o dialplan
+
+        # O `dialer` fala AMI. Esta dependência não existia no provisionamento
+        # até o dialer existir — sem manager.conf habilitado ele não conecta.
+        - name: Interface de gerência (AMI) para o dialer
+          ansible.builtin.template:
+            src: templates/manager.conf.j2
+            dest: /etc/asterisk/manager.conf
+            owner: asterisk
+            group: asterisk
+            mode: "0640"
+          notify: Recarregar o manager
+
         - name: Faixa de portas RTP
           ansible.builtin.template:
             src: templates/rtp.conf.j2
@@ -329,6 +353,16 @@
     - name: Recarregar o logger
       ansible.builtin.command:
         cmd: asterisk -rx "logger reload"
+      changed_when: true
+
+    - name: Recarregar o dialplan
+      ansible.builtin.command:
+        cmd: asterisk -rx "dialplan reload"
+      changed_when: true
+
+    - name: Recarregar o manager
+      ansible.builtin.command:
+        cmd: asterisk -rx "manager reload"
       changed_when: true
 
     - name: Recarregar o pjsip
