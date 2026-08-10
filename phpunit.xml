@@ -18,11 +18,30 @@
         </include>
     </source>
     <php>
-        <env name="APP_ENV" value="testing"/>
-        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
-        <env name="BCRYPT_ROUNDS" value="4"/>
-        <env name="BROADCAST_CONNECTION" value="null"/>
-        <env name="CACHE_STORE" value="array"/>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <env name="BROADCAST_CONNECTION" value="null" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <!-- 🔴 `force="true"` EM TODAS AS ENTRADAS, e não é zelo.
+
+             Sem `force`, o PHPUnit NÃO sobrepõe variável de ambiente que já exista no
+             shell. Então um `set -a; . ./.env` antes de rodar os testes — coisa que se
+             faz para executar bin/dialer.php ou bin/worker.php à mão — redireciona a
+             suíte inteira para o banco de PRODUÇÃO, com APP_ENV=local e sessão em
+             banco.
+
+             Verificado: com o .env exportado a suíte relatou
+             `banco=prospecta env=local sessao=database`; sem ele,
+             `banco=prospecta_test env=testing sessao=array`.
+
+             O dano possível não é hipotético: `BancoConfiguracaoTest` usa
+             `DatabaseTruncation`, que TRUNCA E COMITA. Uma execução com o .env
+             exportado apagaria as tabelas do banco real, e o sinal seria um teste de
+             CSRF falhando com 419 — que não aponta para nada disso.
+
+             `force` fecha isso: a configuração do arquivo vence o ambiente, sempre. -->
+
         <!-- 🔴 MySQL, NÃO SQLite.
 
              O esqueleto do Laravel vem com sqlite :memory:, e trocar aqui não é
@@ -38,14 +57,14 @@
                  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
                GRANT ALL ON prospecta_test.* TO 'prospecta'@'localhost';
              As credenciais continuam vindo do .env. -->
-        <env name="DB_CONNECTION" value="mysql"/>
-        <env name="DB_DATABASE" value="prospecta_test"/>
-        <env name="DB_URL" value=""/>
-        <env name="MAIL_MAILER" value="array"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="SESSION_DRIVER" value="array"/>
-        <env name="PULSE_ENABLED" value="false"/>
-        <env name="TELESCOPE_ENABLED" value="false"/>
-        <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="DB_CONNECTION" value="mysql" force="true"/>
+        <env name="DB_DATABASE" value="prospecta_test" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="PULSE_ENABLED" value="false" force="true"/>
+        <env name="TELESCOPE_ENABLED" value="false" force="true"/>
+        <env name="NIGHTWATCH_ENABLED" value="false" force="true"/>
     </php>
 </phpunit>
