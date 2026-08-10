@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Fastagi;
 
 use App\Fastagi\Dados;
+use App\Fastagi\CanalMorto;
 use App\Fastagi\Fluxo;
 use App\Fastagi\Registro;
 use App\Fastagi\Resultado;
@@ -29,6 +30,71 @@ final class FluxoTest extends TestCase
             throw new \RuntimeException('fluxo');
         }
         $this->log = $l;
+    }
+
+    /**
+     * 🔴 A REGRESSÃO MAIS CARA DO PROJETO, achada em chamada real com `agi set debug on`.
+     *
+     * O Asterisk envia uma linha `HANGUP` SOZINHA, sem ser resposta a nada. O leitor lia
+     * UMA linha e, quando ela não casava com a expressão, devolvia resposta vazia em
+     * SILÊNCIO — deixando a resposta verdadeira na fila e deslocando o diálogo em um.
+     *
+     * O efeito não era erro visível: era DADO FABRICADO. Aqui o `HANGUP` chega depois da
+     * resposta do `AMD`, e sem o conserto o `amdStatus` viria nulo e o `amdCause` viria
+     * "HANGUP" — e o fluxo seguiria para a URA num canal morto, extraindo tecla de
+     * respostas de `GET VARIABLE`.
+     *
+     * Com o conserto, o veredito é lido certo e o desfecho é `nao_atendeu`, que é a
+     * verdade: a pessoa desligou durante a análise.
+     */
+    #[Test]
+    public function hangup_assincrono_nao_desloca_o_dialogo(): void
+    {
+        [$r] = $this->rodar([
+            self::OK,                          // ANSWER
+            self::OK,                          // MixMonitor
+            self::OK, '200 result=1 (SUCCESS)', // abertura + PLAYBACKSTATUS
+            self::OK,                          // EXEC AMD
+            'HANGUP',                          // 🔴 notificação ASSÍNCRONA, no meio
+            '200 result=1 (HANGUP)',           // AMDSTATUS, a resposta de verdade
+            '200 result=1 ()',                 // AMDCAUSE
+        ]);
+
+        $this->assertSame('nao_atendeu', $r->desfecho, 'desligou durante a análise');
+        $this->assertSame('HANGUP', $r->amdStatus, 'o veredito foi lido no lugar certo');
+    }
+
+    /**
+     * `511 Command Not Permitted on a dead channel` é canal morto, e antes caía no mesmo
+     * silêncio: virava resposta vazia e o fluxo seguia tocando áudio e lendo dígito num
+     * canal que não existe mais.
+     */
+    #[Test]
+    public function o_511_de_canal_morto_encerra_o_fluxo(): void
+    {
+        $arreio = new ArreioAgi([
+            self::OK,                          // ANSWER
+            self::OK,                          // MixMonitor
+            self::OK, '200 result=1 (SUCCESS)', // abertura
+            self::OK, '200 result=1 (HUMAN)', '200 result=1 (HUMAN-800-800)', // AMD
+            self::OK,                          // WaitForSilence
+            '511 Command Not Permitted on a dead channel or intercept routine',
+        ]);
+        $r = new Resultado();
+
+        try {
+            (new Fluxo($arreio->agi, new Registro($this->log, 4242)))->executar($this->dados(), $r);
+            $this->fail('o 511 devia ter virado CanalMorto');
+        } catch (CanalMorto $e) {
+            // É assim que o `bin/fastagi.php` trata: desligou, não é erro, e a fase 4
+            // grava o que se sabe. Antes o 511 virava resposta vazia em silêncio e o
+            // fluxo seguia tocando áudio e lendo dígito num canal que não existe.
+            $this->assertStringContainsString('GET DATA', $e->comando);
+        }
+
+        // E NENHUMA tecla foi inventada.
+        $this->assertNull($r->teclaDigitada);
+        $this->assertNotSame('invalido', $r->desfecho);
     }
 
     /**

@@ -18,6 +18,19 @@ final class Agi
     private array $ambiente = [];
 
     /**
+     * O Asterisk já avisou que o canal caiu?
+     *
+     * `GET VARIABLE` continua respondendo em canal morto, então saber disto permite ao
+     * chamador decidir o que ainda vale ler.
+     */
+    private bool $desligou = false;
+
+    public function desligou(): bool
+    {
+        return $this->desligou;
+    }
+
+    /**
      * Sem Registro injetado: o PHPStan mostrou que a dependência nunca era
      * lida. Quem loga é o chamador, que tem o contexto da Ligação — o
      * protocolo em si não tem o que dizer.
@@ -76,14 +89,62 @@ final class Agi
             throw new CanalMorto($comando);
         }
 
-        $linha = fgets($this->entrada);
-        if ($linha === false) {
+        // 🔴 LÊ ATÉ ACHAR A RESPOSTA, pulando a notificação ASSÍNCRONA de desligamento.
+        //
+        // O Asterisk envia uma linha `HANGUP` sozinha, a qualquer momento, sem ser
+        // resposta a nada. A versão anterior lia UMA linha e, quando ela não casava com
+        // a expressão, devolvia `Resposta(0, '')` em SILÊNCIO — deixando a resposta
+        // verdadeira do comando anterior na fila e DESLOCANDO todo o diálogo em um.
+        //
+        // Medido em chamada real, com `agi set debug on`:
+        //
+        //   EXEC AMD ...            -> 200 result=0
+        //                           -> HANGUP                 <- consumido como resposta
+        //   GET VARIABLE AMDSTATUS  -> 200 result=1 (HANGUP)   <- lido como AMDCAUSE
+        //   GET DATA ...            -> 511 dead channel
+        //
+        // O resultado NÃO foi um erro visível: foi DADO FABRICADO. O `fastagi` gravou
+        // `amdStatus = null` e `amdCause = 'HANGUP'`, e numa chamada anterior extraiu a
+        // tecla "1" de um `200 result=1 (SUCCESS)` de `GET VARIABLE` — registrando um
+        // dígito que a pessoa nunca apertou, com desfecho `invalido` inventado.
+        //
+        // Pular a linha e seguir lendo preserva o desenho: o `Fluxo` consegue ler
+        // `AMDSTATUS = HANGUP` e gravar `nao_atendeu`, que é o desfecho verdadeiro.
+        while (true) {
+            $linha = fgets($this->entrada);
+            if ($linha === false) {
+                throw new CanalMorto($comando);
+            }
+            $linha = rtrim($linha, "\r\n");
+
+            if ($linha === '') {
+                continue;
+            }
+
+            if ($linha === 'HANGUP') {
+                // Só registra. `GET VARIABLE` continua funcionando em canal morto — é o
+                // que permite ler o veredito do AMD depois do desligamento.
+                $this->desligou = true;
+                continue;
+            }
+
+            break;
+        }
+
+        // 🔴 `511 Command Not Permitted on a dead channel` é CANAL MORTO, e antes caía
+        // no mesmo silêncio: não casa com a expressão, virava `Resposta(0, '')`, e o
+        // fluxo seguia tentando tocar áudio e ler dígito num canal que não existe.
+        if (str_starts_with($linha, '511')) {
+            $this->desligou = true;
+
             throw new CanalMorto($comando);
         }
-        $linha = rtrim($linha, "\r\n");
 
         // "200 result=1 (valor)"
         if (preg_match('/^(\d{3})\s+result=(-?\S*)(?:\s+\((.*)\))?/', $linha, $m) !== 1) {
+            // 510 (comando inválido) e 520 (uso inválido) caem aqui. NÃO é canal morto:
+            // é defeito nosso na montagem do comando. A linha crua vai na `Resposta` para
+            // o chamador poder registrá-la — é o que impede o silêncio.
             return new Resposta(0, '', null, $linha);
         }
 
