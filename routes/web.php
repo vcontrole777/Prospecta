@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Livewire\CampanhaForm;
 use App\Livewire\Audios;
 use App\Livewire\Binas;
+use App\Livewire\Bloqueios;
 use App\Livewire\Campanhas;
 use App\Livewire\Configuracao;
 use App\Livewire\Conversas;
@@ -61,6 +62,7 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/audios', Audios::class)->name('audios');
     Route::get('/binas', Binas::class)->name('binas');
+    Route::get('/bloqueios', Bloqueios::class)->name('bloqueios');
     Route::get('/integracoes', Integracoes::class)->name('integracoes');
     Route::get('/conversas', Conversas::class)->name('conversas');
     Route::get('/configuracao', Configuracao::class)->name('configuracao');
