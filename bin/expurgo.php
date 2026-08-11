@@ -33,6 +33,53 @@ $log->capturarTudo();
 
 $base = rtrim($conf['gravacao_dir'], '/');
 
+/*
+ * 🔴 ABORTA SE NÃO ATRAVESSAR O DIRETÓRIO, e esta é a guarda mais importante do script.
+ *
+ * Sem ela: `is_file()` responde `false` para todo arquivo quando falta permissão no
+ * diretório; o laço abaixo conta cada um como "já ausente" e LIMPA A COLUNA. Resultado —
+ * toda gravação da instância fica no disco sem nenhuma linha apontando para ela, em
+ * silêncio, e nenhuma execução futura consegue apagá-la, porque este expurgo só conhece o
+ * que está no banco.
+ *
+ * É exatamente o "vazamento permanente, invisível, que só um `find` manual encontraria"
+ * que o comentário da ORDEM, mais abaixo, diz que a ordem existe para evitar. E a ordem de
+ * fato evita — para o caso de morrer no meio. Ela não faz nada contra `is_file()`
+ * respondendo `false` por cegueira, porque aí não há erro nenhum: o script conclui a
+ * passada, registra "N já ausentes" e sai com sucesso.
+ *
+ * Medido nesta máquina: o diretório é `asterisk:asterisk` modo 2770 e este script roda
+ * como `prospecta`. Basta a adesão ao grupo `asterisk` faltar — ou o modo mudar — para a
+ * condição valer.
+ *
+ * ABORTA em vez de pular linha por linha porque a condição é GLOBAL: se ela vale, TODA
+ * decisão desta passada estaria errada do mesmo modo. E abortar é o lado seguro — o
+ * expurgo é periódico, então perder uma passada não custa nada, enquanto uma passada
+ * errada é irreversível.
+ *
+ * Diretório INEXISTENTE sai com SUCESSO: nada foi gravado ainda, ou a gravação está
+ * desligada. Não é anomalia, e tratá-la como erro faria o timer do systemd acumular
+ * falhas numa instância que está perfeitamente bem.
+ */
+if (! is_dir($base)) {
+    $log->linha('fim', 'nada a expurgar: o diretório de gravação não existe', ['diretorio' => $base]);
+    exit(0);
+}
+
+if (! is_readable($base) || ! is_executable($base)) {
+    $log->linha('erro', 'sem acesso ao diretório de gravação; ABORTO sem tocar em nada', [
+        'diretorio' => $base,
+        'usuario' => function_exists('posix_getpwuid') && function_exists('posix_geteuid')
+            ? (posix_getpwuid(posix_geteuid())['name'] ?? '?')
+            : '?',
+        'causa_provavel' => 'o usuário deste serviço precisa estar no grupo do diretório',
+    ]);
+
+    // Não-zero para o systemd marcar a unidade como falha. Silêncio aqui seria pior que o
+    // defeito: o expurgo pareceria estar funcionando e a retenção nunca aconteceria.
+    exit(1);
+}
+
 $pdo = new PDO($conf['banco']['dsn'], $conf['banco']['usuario'], $conf['banco']['senha'], [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
