@@ -11,6 +11,7 @@ use App\Livewire\Conversas;
 use App\Livewire\ImportarLista;
 use App\Http\Controllers\WebhookWhatsapp;
 use App\Livewire\Integracoes;
+use App\Livewire\Resultados;
 use App\Livewire\Entrar;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -56,6 +57,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/campanhas/nova', CampanhaForm::class)->name('campanha.nova');
     Route::get('/campanhas/{id}/editar', CampanhaForm::class)->name('campanha.editar');
     Route::get('/campanhas/{id}/importar', ImportarLista::class)->name('campanha.importar');
+    Route::get('/campanhas/{id}/resultados', Resultados::class)->name('campanha.resultados');
 
     Route::get('/audios', Audios::class)->name('audios');
     Route::get('/binas', Binas::class)->name('binas');

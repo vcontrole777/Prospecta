@@ -136,6 +136,14 @@
                                 <a href="{{ route('campanha.importar', $c['id']) }}"
                                    class="btn btn-ghost btn-xs {{ $c['leads'] === 0 ? 'text-primary' : '' }}">importar</a>
 
+                                {{-- Resultados só depois da primeira ligação. Antes disso o
+                                     link levaria a uma tabela vazia e a contadores zerados,
+                                     o que não informa nada e ensina a não clicar. --}}
+                                @if ($c['discadas'] > 0)
+                                    <a href="{{ route('campanha.resultados', $c['id']) }}"
+                                       class="btn btn-ghost btn-xs">resultados</a>
+                                @endif
+
                                 <a href="{{ route('campanha.editar', $c['id']) }}"
                                    class="btn btn-ghost btn-xs">editar</a>
                             </td>
