@@ -24,15 +24,31 @@ use Livewire\Component;
  *   fastagi  → tipo, tecla_opt_in, tecla_opt_out, tentativas_ura, os 4 audio_*_id
  *   worker   → canal_opt_in, template_nome, template_idioma, template_mapa
  *
- * Só `tipo = opt_in`. Campanha de captura precisa do construtor de campos
- * (`campanha_campo`), que é tela própria — e oferecer o tipo sem ele criaria
- * Campanha que liga, coleta nada e encerra.
+ * 🔴 CAMPOS DE CAPTURA DEFINIDOS AQUI, não em tela separada.
+ *
+ * `campo_definicao` é global e reaproveitável — duas Campanhas que pedem CPF compartilham
+ * a definição —, e isso sugeriria uma tela de catálogo. Mas o operador não pensa em
+ * "catálogo de campos": ele pensa "esta Campanha pergunta CPF e número do contrato".
+ * Definir aqui e reaproveitar por (nome, tipo, tamanho) dá o mesmo resultado no banco com
+ * uma tela a menos.
  */
 final class CampanhaForm extends Component
 {
     public ?int $campanhaId = null;
 
+    public string $tipo = 'opt_in';
+
     public string $nome = '';
+
+    /**
+     * Campos de captura, NA ORDEM em que serão perguntados.
+     *
+     * Mesma disciplina dos parâmetros de template: a ordem é o índice, então `ordem` não
+     * pode ter lacuna — que faria a URA perguntar fora de sequência.
+     *
+     * @var list<array{nome:string, tipo:string, tamanho:int, audio_prompt_id:?int, obrigatorio:bool, tentativas:int, timeout_seg:int}>
+     */
+    public array $campos = [];
 
     public int $chamadas_simultaneas = 1;
 
@@ -113,6 +129,29 @@ final class CampanhaForm extends Component
         $this->template_nome = self::texto($c['template_nome'] ?? null);
         $this->template_idioma = self::texto($c['template_idioma'] ?? null) ?: 'pt_BR';
 
+        $this->tipo = self::texto($c['tipo'] ?? null) === 'captura' ? 'captura' : 'opt_in';
+
+        foreach (DB::select(
+            'SELECT cd.nome, cd.tipo, cd.tamanho, cc.audio_prompt_id, cc.obrigatorio,
+                    cc.tentativas, cc.timeout_seg
+               FROM campanha_campo cc
+               JOIN campo_definicao cd ON cd.id = cc.campo_definicao_id
+              WHERE cc.campanha_id = ?
+              ORDER BY cc.ordem',
+            [$id],
+        ) as $linha) {
+            $cc = (array) $linha;
+            $this->campos[] = [
+                'nome' => self::texto($cc['nome'] ?? null),
+                'tipo' => self::texto($cc['tipo'] ?? null) === 'cpf' ? 'cpf' : 'numero',
+                'tamanho' => max(1, self::inteiro($cc['tamanho'] ?? null)),
+                'audio_prompt_id' => self::inteiroOuNulo($cc['audio_prompt_id'] ?? null),
+                'obrigatorio' => (bool) ($cc['obrigatorio'] ?? false),
+                'tentativas' => max(1, self::inteiro($cc['tentativas'] ?? null)),
+                'timeout_seg' => max(1, self::inteiro($cc['timeout_seg'] ?? null)),
+            ];
+        }
+
         $mapa = json_decode(self::texto($c['template_mapa'] ?? null), true);
         if (is_array($mapa)) {
             // Reordena por posição numérica: a ordem das chaves no JSON não é
@@ -154,6 +193,75 @@ final class CampanhaForm extends Component
         $this->parametros = $restantes;
     }
 
+    public function adicionarCampo(): void
+    {
+        $this->campos[] = [
+            'nome' => '',
+            'tipo' => 'cpf',
+            // 🔴 CPF é 11 por definição: `Cpf::valido` exige exatamente 11 dígitos, e
+            // campo `cpf` com outro tamanho NUNCA valida — a pessoa digitaria, erraria
+            // todas as tentativas, e o campo sairia como não coletado sem explicação.
+            'tamanho' => 11,
+            'audio_prompt_id' => null,
+            'obrigatorio' => true,
+            'tentativas' => 2,
+            'timeout_seg' => 15,
+        ];
+    }
+
+    public function removerCampo(int $i): void
+    {
+        // Reconstrói: a ordem de pergunta vem do índice, e buraco no array viraria
+        // `ordem` com lacuna.
+        $restantes = [];
+        foreach ($this->campos as $indice => $campo) {
+            if ($indice !== $i) {
+                $restantes[] = $campo;
+            }
+        }
+
+        $this->campos = $restantes;
+    }
+
+    /**
+     * Força o tamanho do CPF em 11.
+     *
+     * 🔴 `?string $chave`, e não `string`. O Livewire chama este gancho com a chave NULA
+     * quando o array INTEIRO é atribuído — `set('campos', [...])` — e só com
+     * `campos.0.tipo` quando um campo isolado muda. Declarar `string` fez os doze testes
+     * quebrarem de uma vez com "Argument #2 must be of type string, null given".
+     *
+     * Chave nula é justamente o caso em que vale normalizar TUDO: quem atribuiu a lista
+     * inteira pode ter posto vários campos `cpf` de uma vez.
+     *
+     * Sem isto, campo `cpf` com outro tamanho nunca valida — `Cpf::valido` exige
+     * exatamente 11 dígitos —, e a pessoa digitaria, erraria todas as tentativas, e o
+     * campo sairia como não coletado sem explicação.
+     */
+    public function updatedCampos(mixed $valor, ?string $chave = null): void
+    {
+        if ($chave === null) {
+            foreach (array_keys($this->campos) as $i) {
+                $this->normalizarCpf($i);
+            }
+
+            return;
+        }
+
+        if (! str_ends_with($chave, '.tipo')) {
+            return;
+        }
+
+        $this->normalizarCpf((int) explode('.', $chave)[0]);
+    }
+
+    private function normalizarCpf(int $i): void
+    {
+        if (($this->campos[$i]['tipo'] ?? '') === 'cpf') {
+            $this->campos[$i]['tamanho'] = 11;
+        }
+    }
+
     public function salvar(): void
     {
         $dados = $this->validate($this->regras(), $this->mensagens(), $this->rotulos());
@@ -167,7 +275,7 @@ final class CampanhaForm extends Component
         }
 
         $valores = [
-            'tipo' => 'opt_in',
+            'tipo' => $this->tipo,
             'nome' => trim($this->nome),
             'chamadas_simultaneas' => $this->chamadas_simultaneas,
             'max_tentativas' => $this->max_tentativas,
@@ -202,8 +310,73 @@ final class CampanhaForm extends Component
             DB::table('campanha')->where('id', $this->campanhaId)->update($valores);
         }
 
+        $this->gravarCampos();
+
         session()->flash('recado', 'Campanha salva.');
         $this->redirectRoute('campanhas');
+    }
+
+    /**
+     * Reescreve os campos da Campanha.
+     *
+     * 🔴 APAGA E REINSERE, em vez de casar linha por linha. A `ordem` vem do índice da
+     * lista, então uma reordenação muda quase todas as linhas — casar por id daria o
+     * mesmo resultado com mais código e mais chance de deixar `ordem` duplicada no meio.
+     *
+     * `campanha_campo` não é referenciada por nada: a `ligacao` guarda as respostas em
+     * `respostas` (JSON), com o NOME do campo como chave. Então apagar não perde
+     * histórico — a mesma razão pela qual a lista de BINA pode ser removida e o áudio
+     * não.
+     */
+    private function gravarCampos(): void
+    {
+        if ($this->campanhaId === null) {
+            return;
+        }
+
+        DB::table('campanha_campo')->where('campanha_id', $this->campanhaId)->delete();
+
+        if ($this->tipo !== 'captura') {
+            return;
+        }
+
+        foreach ($this->campos as $i => $campo) {
+            $nome = trim($campo['nome']);
+            if ($nome === '') {
+                continue;
+            }
+
+            $tipo = $campo['tipo'] === 'cpf' ? 'cpf' : 'numero';
+            // CPF é 11 por definição, e forçar aqui fecha o caminho para quem chegar por
+            // outro lado que não o formulário.
+            $tamanho = $tipo === 'cpf' ? 11 : max(1, $campo['tamanho']);
+
+            // Reaproveita a definição quando já existe: duas Campanhas que pedem CPF
+            // compartilham a linha, que é o propósito de `campo_definicao` ser global.
+            $definicaoId = DB::table('campo_definicao')
+                ->where('nome', $nome)
+                ->where('tipo', $tipo)
+                ->where('tamanho', $tamanho)
+                ->value('id');
+
+            if (! is_numeric($definicaoId)) {
+                $definicaoId = DB::table('campo_definicao')->insertGetId([
+                    'nome' => $nome,
+                    'tipo' => $tipo,
+                    'tamanho' => $tamanho,
+                ]);
+            }
+
+            DB::table('campanha_campo')->insert([
+                'campanha_id' => $this->campanhaId,
+                'campo_definicao_id' => (int) $definicaoId,
+                'ordem' => $i + 1,
+                'audio_prompt_id' => $campo['audio_prompt_id'],
+                'obrigatorio' => $campo['obrigatorio'] ? 1 : 0,
+                'tentativas' => max(1, $campo['tentativas']),
+                'timeout_seg' => max(3, $campo['timeout_seg']),
+            ]);
+        }
     }
 
     /** @return array<string, list<string>> */
@@ -211,6 +384,20 @@ final class CampanhaForm extends Component
     {
         return [
             'nome' => ['required', 'string', 'max:255'],
+            'tipo' => ['required', 'in:opt_in,captura'],
+
+            // Captura sem campo é uma Campanha que liga, não pergunta nada e encerra.
+            'campos' => [$this->tipo === 'captura' ? 'required' : 'array', 'array', 'max:10'],
+            'campos.*.nome' => ['required', 'string', 'max:255'],
+            'campos.*.tipo' => ['required', 'in:cpf,numero'],
+            'campos.*.tamanho' => ['required', 'integer', 'min:1', 'max:30'],
+            // 🔴 PROMPT OBRIGATÓRIO. Campo sem áudio fazia o `GET DATA` tocar nada: a
+            // pessoa ouvia SILÊNCIO até o timeout, "errava" por não ter digitado, e o
+            // campo saía como não coletado. O `Fluxo` agora recusa a captura inteira com
+            // `AUDIO_NAO_CONFIGURADO`; exigir aqui evita chegar lá.
+            'campos.*.audio_prompt_id' => ['required', 'integer', 'exists:audio,id'],
+            'campos.*.tentativas' => ['required', 'integer', 'min:1', 'max:5'],
+            'campos.*.timeout_seg' => ['required', 'integer', 'min:3', 'max:60'],
 
             // Sem máximo aqui: o teto real é o contratado da INSTÂNCIA, que vive no
             // .env dos processos de chamada e não é lido pelo painel. O dialer
@@ -237,10 +424,20 @@ final class CampanhaForm extends Component
 
             'canal_opt_in' => ['required', 'in:whatsapp,sms'],
 
-            // Obrigatório no WhatsApp porque o worker recusa a Ação sem ele, com
-            // motivo `campanha_sem_template_ou_lead_sem_telefone`. Exigir aqui troca
-            // uma falha silenciosa no envio por um campo vermelho no cadastro.
-            'template_nome' => ['nullable', 'required_if:canal_opt_in,whatsapp', 'string', 'max:255'],
+            // 🔴 Obrigatório só quando é OPT-IN e WhatsApp — condição composta, que
+            // `required_if` não expressa.
+            //
+            // Opt-in gera Ação de `disparo`, e o worker a recusa sem template, com motivo
+            // `campanha_sem_template_ou_lead_sem_telefone`. Exigir aqui troca falha
+            // silenciosa no envio por campo vermelho no cadastro.
+            //
+            // Captura gera `evento_captura_concluida`, que NÃO passa por template. Exigir
+            // ali recusaria uma Campanha de captura perfeitamente configurada — e foi o
+            // que aconteceu: oito testes de captura quebraram pedindo um template que a
+            // captura não usa.
+            'template_nome' => $this->tipo === 'opt_in' && $this->canal_opt_in === 'whatsapp'
+                ? ['required', 'string', 'max:255']
+                : ['nullable', 'string', 'max:255'],
             'template_idioma' => ['required', 'string', 'max:10'],
 
             'parametros' => ['array', 'max:10'],
@@ -256,8 +453,11 @@ final class CampanhaForm extends Component
             'tecla_opt_in.regex' => 'Uma tecla só: 0 a 9, * ou #.',
             'tecla_opt_out.regex' => 'Uma tecla só: 0 a 9, * ou #.',
             'tecla_opt_in.different' => 'As teclas de opt-in e opt-out têm que ser diferentes.',
-            'template_nome.required_if' => 'No WhatsApp o nome do template é obrigatório: sem ele o envio falha.',
+            'template_nome.required' => 'No WhatsApp o nome do template é obrigatório: sem ele o envio falha.',
             'parametros.*.required' => 'Parâmetro em branco — remova a linha ou preencha o nome da coluna.',
+            'campos.required' => 'Campanha de captura precisa de ao menos um campo, senão ela liga e não pergunta nada.',
+            'campos.*.audio_prompt_id.required' => 'Escolha o áudio que pergunta este campo: sem ele a pessoa ouve silêncio.',
+            'campos.*.nome.required' => 'Dê um nome ao campo — é a chave com que a resposta é gravada.',
         ];
     }
 

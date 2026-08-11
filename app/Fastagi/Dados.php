@@ -16,7 +16,7 @@ final class Dados
 {
     /**
      * @param 'opt_in'|'captura' $tipo
-     * @param list<array{nome:string,tamanho:int,tipo:string,audio:string,obrigatorio:bool,tentativas:int,timeoutSeg:int}> $campos
+     * @param list<array{nome:string,tamanho:int,tipo:string,audio:?string,obrigatorio:bool,tentativas:int,timeoutSeg:int}> $campos
      * @param list<string> $amd parâmetros do AMD, na ordem posicional
      */
     public function __construct(

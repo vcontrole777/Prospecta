@@ -64,7 +64,16 @@ final class Campanhas extends Component
             $faltas[] = 'nenhum Lead disponível — importe a lista antes';
         }
 
-        if (($c['audio_mensagem_id'] ?? null) === null) {
+        $ehCaptura = ($c['tipo'] ?? null) === 'captura';
+
+        if ($ehCaptura) {
+            // 🔴 Captura NÃO usa o áudio de mensagem — `Fluxo::captura` pergunta campo a
+            // campo, com o prompt de cada um. Exigir a mensagem aqui recusaria uma
+            // Campanha perfeitamente configurada.
+            foreach ($this->faltasDeCaptura($id) as $falta) {
+                $faltas[] = $falta;
+            }
+        } elseif (($c['audio_mensagem_id'] ?? null) === null) {
             $faltas[] = 'áudio da mensagem não escolhido — a chamada sairia muda';
         } else {
             // 🔴 A LINHA NO BANCO NÃO É PROVA de que o arquivo existe e serve.
@@ -80,7 +89,9 @@ final class Campanhas extends Component
             }
         }
 
-        if (($c['canal_opt_in'] ?? null) === 'whatsapp' && ($c['template_nome'] ?? null) === null) {
+        // Só opt-in gera Ação de disparo; captura gera `evento_captura_concluida`, que
+        // não passa por template.
+        if (! $ehCaptura && ($c['canal_opt_in'] ?? null) === 'whatsapp' && ($c['template_nome'] ?? null) === null) {
             $faltas[] = 'nome do template ausente — o opt-in não viraria mensagem';
         }
 
@@ -101,6 +112,51 @@ final class Campanhas extends Component
             ]);
 
         session()->flash('recado', 'Campanha no ar.');
+    }
+
+    /**
+     * Faltas de uma Campanha de captura.
+     *
+     * Sem campo, ela liga, não pergunta nada e encerra. Com campo sem prompt no disco, a
+     * pessoa ouve SILÊNCIO até o timeout — e o `Fluxo` recusa a captura inteira com
+     * `AUDIO_NAO_CONFIGURADO`, o que é melhor que coletar meio formulário, mas pior que
+     * nunca ter discado.
+     *
+     * @return list<string>
+     */
+    private function faltasDeCaptura(int $campanhaId): array
+    {
+        $campos = DB::select(
+            'SELECT cd.nome, cc.audio_prompt_id
+               FROM campanha_campo cc
+               JOIN campo_definicao cd ON cd.id = cc.campo_definicao_id
+              WHERE cc.campanha_id = ?
+              ORDER BY cc.ordem',
+            [$campanhaId],
+        );
+
+        if ($campos === []) {
+            return ['nenhum campo a coletar — a Campanha ligaria e não perguntaria nada'];
+        }
+
+        $faltas = [];
+        foreach ($campos as $linha) {
+            $cc = (array) $linha;
+            $nome = self::texto($cc['nome'] ?? null);
+            $audioId = $cc['audio_prompt_id'] ?? null;
+
+            if (! is_numeric($audioId)) {
+                $faltas[] = sprintf('o campo "%s" não tem áudio de pergunta', $nome);
+                continue;
+            }
+
+            $falta = $this->conferirAudio((int) $audioId);
+            if ($falta !== null) {
+                $faltas[] = sprintf('no campo "%s": %s', $nome, $falta);
+            }
+        }
+
+        return $faltas;
     }
 
     /**

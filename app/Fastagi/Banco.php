@@ -146,14 +146,14 @@ final class Banco
             tentativasUra: self::numero($linha['tentativas_ura'] ?? null),
             gravacaoAtiva: self::numero($linha['gravacao_ativa'] ?? null) === 1,
             gravacaoDir: $gravacaoDir,
-            campos: $this->campos($ligacaoId),
+            campos: $this->campos($ligacaoId, $audioDir),
         );
     }
 
     /**
-     * @return list<array{nome:string,tamanho:int,tipo:string,audio:string,obrigatorio:bool,tentativas:int,timeoutSeg:int}>
+     * @return list<array{nome:string,tamanho:int,tipo:string,audio:?string,obrigatorio:bool,tentativas:int,timeoutSeg:int}>
      */
-    private function campos(int $ligacaoId): array
+    private function campos(int $ligacaoId, string $audioDir): array
     {
         $sql = <<<'SQL'
             SELECT cd.nome, cd.tamanho, cd.tipo, a.arquivo,
@@ -182,7 +182,14 @@ final class Banco
                 'nome' => $nome,
                 'tamanho' => self::numero($l['tamanho'] ?? null),
                 'tipo' => self::texto($l['tipo'] ?? null) ?? 'numero',
-                'audio' => 'prospecta/' . pathinfo(self::texto($l['arquivo'] ?? null) ?? 'campo', PATHINFO_FILENAME),
+                // 🔴 `null` quando não há prompt, e NÃO um caminho fabricado.
+                //
+                // Antes era `'prospecta/' . pathinfo(... ?? 'campo')`, que produzia
+                // `prospecta/campo` — arquivo que `audios_sistema` nunca instalou. O
+                // `GET DATA` então tocava NADA e a pessoa ouvia silêncio até o timeout,
+                // errava a "validação" por não ter digitado, e o campo era descartado.
+                // Mesma classe do `prospecta/mensagem` que já foi consertado.
+                'audio' => $this->caminho($audioDir, self::texto($l['arquivo'] ?? null)),
                 'obrigatorio' => self::numero($l['obrigatorio'] ?? null) === 1,
                 'tentativas' => self::numero($l['tentativas'] ?? null),
                 'timeoutSeg' => self::numero($l['timeout_seg'] ?? null),

@@ -14,12 +14,22 @@
 
             <x-input label="Nome" wire:model="nome" />
 
-            {{-- `tipo` não é editável: Campanha de captura precisa do construtor
-                 de campos, que não existe. Oferecer o tipo criaria Campanha que
-                 liga, coleta nada e encerra. --}}
+            <x-select
+                label="Tipo"
+                wire:model.live="tipo"
+                :options="[
+                    ['id' => 'opt_in',  'name' => 'Opt-in — a pessoa aperta uma tecla para aceitar'],
+                    ['id' => 'captura', 'name' => 'Captura — a pessoa digita dados no teclado'],
+                ]"
+            />
+
             <p class="text-sm text-base-content/60">
-                Tipo: <span class="text-base-content">opt-in</span>. Campanha de
-                captura de dados precisa da tela de campos, que ainda não existe.
+                @if ($tipo === 'captura')
+                    A URA pergunta os campos na ordem definida abaixo e grava o que for
+                    digitado. Não há tecla de opt-in nesse tipo.
+                @else
+                    A URA toca a mensagem e espera uma tecla.
+                @endif
             </p>
         </section>
 
@@ -84,13 +94,97 @@
         </section>
 
         {{-- ---------------------------------------------------------------- --}}
+        @if ($tipo === 'captura')
+            <section class="flex flex-col gap-4">
+                <div class="flex items-baseline justify-between border-b border-[var(--rule)] pb-1">
+                    <h2 class="rotulo">Campos a coletar</h2>
+                    <button type="button" wire:click="adicionarCampo" class="btn btn-ghost btn-xs">+ campo</button>
+                </div>
+
+                @if ($campos === [])
+                    <p class="text-sm text-warning">
+                        Nenhum campo. Campanha de captura sem campo liga, não pergunta
+                        nada e encerra.
+                    </p>
+                @endif
+
+                @foreach ($campos as $i => $campo)
+                    <div class="border border-[var(--rule)] p-4">
+                        <div class="flex items-baseline justify-between border-b border-[var(--rule)] pb-2">
+                            {{-- A ordem da pergunta é a ordem da lista. Numerar deixa isso
+                                 explícito em vez de implícito na posição. --}}
+                            <span class="rotulo">Pergunta {{ $i + 1 }}</span>
+                            <button type="button" wire:click="removerCampo({{ $i }})"
+                                    class="btn btn-ghost btn-xs">remover</button>
+                        </div>
+
+                        <div class="mt-3 grid gap-4 sm:grid-cols-2">
+                            <x-input label="Nome" wire:model="campos.{{ $i }}.nome"
+                                     placeholder="CPF" />
+
+                            <x-select label="Tipo" wire:model.live="campos.{{ $i }}.tipo"
+                                :options="[
+                                    ['id' => 'cpf',    'name' => 'CPF — dígito verificador conferido'],
+                                    ['id' => 'numero', 'name' => 'Número — só a quantidade de dígitos'],
+                                ]" />
+                        </div>
+
+                        <div class="mt-4 grid gap-4 sm:grid-cols-3">
+                            <div>
+                                <x-input label="Dígitos" type="number" min="1" max="30" class="num"
+                                         wire:model="campos.{{ $i }}.tamanho"
+                                         :disabled="$campo['tipo'] === 'cpf'" />
+                                @if ($campo['tipo'] === 'cpf')
+                                    {{-- Não é limite arbitrário: `Cpf::valido` exige
+                                         exatamente 11, e outro tamanho NUNCA validaria —
+                                         a pessoa digitaria e erraria todas as tentativas. --}}
+                                    <p class="rotulo mt-1">CPF é sempre 11</p>
+                                @endif
+                            </div>
+
+                            <x-input label="Tentativas" type="number" min="1" max="5" class="num"
+                                     wire:model="campos.{{ $i }}.tentativas" />
+
+                            <x-input label="Timeout (s)" type="number" min="3" max="60" class="num"
+                                     wire:model="campos.{{ $i }}.timeout_seg" />
+                        </div>
+
+                        <div class="mt-4">
+                            @if ($audios === [])
+                                <p class="text-sm text-warning">
+                                    Nenhum áudio cadastrado — sem o áudio que faz a
+                                    pergunta, a pessoa ouve silêncio.
+                                </p>
+                            @else
+                                <x-select label="Áudio que faz a pergunta"
+                                          wire:model="campos.{{ $i }}.audio_prompt_id"
+                                          :options="$audios" option-label="nome"
+                                          placeholder="— escolha —" />
+                            @endif
+                        </div>
+
+                        <div class="mt-4">
+                            <x-checkbox label="Obrigatório" wire:model="campos.{{ $i }}.obrigatorio" />
+                            <p class="mt-1 text-sm text-base-content/60">
+                                Obrigatório não coletado encerra como captura parcial.
+                                Opcional é apenas pulado.
+                            </p>
+                        </div>
+                    </div>
+                @endforeach
+            </section>
+        @endif
+
+        {{-- ---------------------------------------------------------------- --}}
         <section class="flex flex-col gap-4">
             <h2 class="rotulo border-b border-[var(--rule)] pb-1">URA</h2>
 
-            <div class="grid gap-4 sm:grid-cols-2">
-                <x-input label="Tecla de opt-in" wire:model="tecla_opt_in" maxlength="1" class="identificador" />
-                <x-input label="Tecla de opt-out" wire:model="tecla_opt_out" maxlength="1" class="identificador" />
-            </div>
+            @if ($tipo === 'opt_in')
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <x-input label="Tecla de opt-in" wire:model="tecla_opt_in" maxlength="1" class="identificador" />
+                    <x-input label="Tecla de opt-out" wire:model="tecla_opt_out" maxlength="1" class="identificador" />
+                </div>
+            @endif
 
             @if ($audios === [])
                 {{-- Estado vazio honesto: sem áudio a Campanha liga e não fala

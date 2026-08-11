@@ -169,8 +169,30 @@ final class Fluxo
 
     private function captura(Dados $d, Resultado $r): Resultado
     {
+        // 🔴 CONFERE TODOS OS PROMPTS ANTES DE PERGUNTAR QUALQUER COISA.
+        //
+        // Campo sem áudio de prompt fazia o `GET DATA` tocar um caminho fabricado —
+        // `prospecta/campo`, arquivo que ninguém instala — e a pessoa ouvia SILÊNCIO até
+        // o timeout, "errava" por não ter digitado, e o campo era descartado. Mesma
+        // classe do `prospecta/mensagem`.
+        //
+        // A conferência é ANTES do laço, e não campo a campo, para não coletar meio
+        // formulário: perguntar o CPF, gravar, e só então descobrir que o segundo campo
+        // não tem prompt deixaria a pessoa tendo digitado por nada.
         foreach ($d->campos as $campo) {
-            $valor = $this->lerCampo($campo, $r);
+            if ($campo['audio'] === null) {
+                $this->log->linha('audio', 'AUDIO_NAO_CONFIGURADO', ['campo' => $campo['nome']]);
+                $r->desfecho = 'erro';
+                $r->erro = 'AUDIO_NAO_CONFIGURADO';
+
+                return $r;
+            }
+        }
+
+        foreach ($d->campos as $campo) {
+            // O prompt vai como argumento próprio: a conferência acima garantiu que
+            // não é nulo, e passar explícito é o que torna a garantia legível.
+            $valor = $this->lerCampo($campo, (string) $campo['audio'], $r);
 
             if ($valor === null) {
                 if ($campo['obrigatorio']) {
@@ -190,12 +212,15 @@ final class Fluxo
     }
 
     /**
-     * @param array{nome:string,tamanho:int,tipo:string,audio:string,obrigatorio:bool,tentativas:int,timeoutSeg:int} $campo
+     * O `audio` do array é nullable, mas o prompt chega como argumento PRÓPRIO e
+     * não-nulo: `captura()` já conferiu todos antes de perguntar qualquer coisa.
+     *
+     * @param array{nome:string,tamanho:int,tipo:string,audio:?string,obrigatorio:bool,tentativas:int,timeoutSeg:int} $campo
      */
-    private function lerCampo(array $campo, Resultado $r): ?string
+    private function lerCampo(array $campo, string $audio, Resultado $r): ?string
     {
         for ($t = 1; $t <= max(1, $campo['tentativas']); $t++) {
-            $valor = $this->agi->lerDigitos($campo['audio'], $campo['tamanho'], $campo['timeoutSeg'] * 1000);
+            $valor = $this->agi->lerDigitos($audio, $campo['tamanho'], $campo['timeoutSeg'] * 1000);
             $this->log->linha('campo', 'coletado', [
                 'campo' => $campo['nome'], 'tentativa' => $t, 'digitos' => strlen($valor),
             ]);
