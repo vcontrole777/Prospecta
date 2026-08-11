@@ -14,6 +14,27 @@
         </div>
     </div>
 
+    @unless ($gravacaoAcessivel)
+        {{-- 🔴 O AVISO É SOBRE NÓS, não sobre o Asterisk.
+             As gravações são `asterisk:asterisk` modo 2770 e o painel roda como
+             `prospecta`, que precisa estar no grupo `asterisk`. Grupo suplementar é
+             fixado no `exec`: adesão concedida depois de o php-fpm subir não vale para os
+             workers em execução. Sem este aviso, a coluna de gravação diria "não está no
+             disco" em toda linha, acusando o Asterisk de um problema de configuração
+             nosso — e ensinando o operador a ignorar o aviso que um dia estará certo. --}}
+        <div class="mt-4 border border-warning/50 p-4 text-sm">
+            <p class="text-warning">O painel não consegue ler o diretório de gravações</p>
+            <p class="mt-1 text-base-content/70">
+                <span class="identificador">{{ $gravacaoDir }}</span> existe, mas este
+                processo não o atravessa. A coluna de gravação abaixo não pode afirmar nada
+                enquanto isso durar. O usuário do php-fpm precisa estar no grupo
+                <span class="identificador">asterisk</span> — e o serviço precisa ser
+                <strong>reiniciado</strong> depois de entrar no grupo, porque grupo
+                suplementar só é lido quando o processo começa.
+            </p>
+        </div>
+    @endunless
+
     {{-- ---------- os números ---------- --}}
     <div class="mt-5 grid gap-px bg-[var(--rule)] sm:grid-cols-2 lg:grid-cols-4">
         <div class="bg-[var(--bg-surface)] p-4">
@@ -175,21 +196,41 @@
                             </td>
 
                             <td class="p-2 text-xs">
-                                @if ($gravacao === '')
-                                    <span class="text-base-content/40">—</span>
-                                @elseif (is_file($gravacao))
-                                    {{-- Sem player: alaw cru não tem cabeçalho e navegador
-                                         nenhum toca. Servir exigiria empacotar em WAV numa
-                                         rota nova, e um botão que não toca é pior que um
-                                         caminho que o operador copia. --}}
-                                    <span class="identificador text-base-content/70">{{ basename($gravacao) }}</span>
-                                @else
-                                    {{-- 🔴 A COLUNA PREENCHIDA NÃO É PROVA. Com o diretório sem
-                                         permissão o MixMonitor erra no log do Asterisk e a
-                                         chamada segue normal, deixando aqui um caminho para um
-                                         arquivo que nunca existiu. --}}
-                                    <span class="text-warning" title="{{ $gravacao }}">não está no disco</span>
-                                @endif
+                                {{-- Três respostas, não duas: existe, não existe, ou não
+                                     sei dizer. `is_file() === false` não prova ausência —
+                                     prova que este processo não conseguiu ver. --}}
+                                @switch (\App\Livewire\Resultados::situacaoDaGravacao($gravacao))
+                                    @case ('sem_gravacao')
+                                        <span class="text-base-content/40">—</span>
+                                        @break
+
+                                    @case ('existe')
+                                        {{-- Sem player: alaw cru não tem cabeçalho e navegador
+                                             nenhum toca. Servir exigiria empacotar em WAV numa
+                                             rota nova, e um botão que não toca é pior que um
+                                             caminho que o operador copia. --}}
+                                        <span class="identificador text-base-content/70">{{ basename($gravacao) }}</span>
+                                        @break
+
+                                    @case ('sem_acesso')
+                                        {{-- Não acusa o Asterisk de um problema que pode ser
+                                             nosso: o painel roda como `prospecta`, e as
+                                             gravações são `asterisk:asterisk` 2770. Grupo
+                                             suplementar é fixado no `exec` — adesão concedida
+                                             depois de o php-fpm subir não vale até reiniciar. --}}
+                                        <span class="text-base-content/50"
+                                              title="O painel não consegue atravessar {{ dirname($gravacao) }}. Confira se o usuário do php-fpm está no grupo asterisk e reinicie o serviço.">
+                                            não consigo verificar
+                                        </span>
+                                        @break
+
+                                    @default
+                                        {{-- 🔴 AQUI SIM É DEFEITO, e agora o aviso é confiável.
+                                             Com o diretório sem permissão o MixMonitor erra no
+                                             log do Asterisk e a chamada segue normal, deixando
+                                             um caminho para arquivo que nunca existiu. --}}
+                                        <span class="text-warning" title="{{ $gravacao }}">não está no disco</span>
+                                @endswitch
                             </td>
                         </tr>
                     @endforeach

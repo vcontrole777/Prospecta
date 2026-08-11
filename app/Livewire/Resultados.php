@@ -95,6 +95,9 @@ final class Resultados extends Component
             'contagens' => $this->contagens(),
             'ligacoes' => $this->pagina(),
             'gravacaoDir' => $this->diretorioDeGravacao(),
+            // O diagnóstico UMA vez, no topo, em vez de "não consigo verificar" repetido
+            // em cinquenta linhas: a causa é a mesma para todas, e é de configuração.
+            'gravacaoAcessivel' => $this->gravacaoAcessivel(),
         ]);
     }
 
@@ -355,6 +358,67 @@ final class Resultados extends Component
     private function diretorioDeGravacao(): string
     {
         return rtrim(self::texto(config('fastagi.gravacao_dir')), '/');
+    }
+
+    /**
+     * O painel consegue atravessar o diretório de gravação?
+     *
+     * Verdadeiro quando o diretório não existe TAMBÉM: gravação desligada, ou instância
+     * nova, não é problema de acesso, e avisar sobre permissão nesse caso seria mandar o
+     * operador atrás de um defeito que não existe. Quem cuida de "a gravação está ligada e
+     * o arquivo não apareceu" é a coluna, linha por linha.
+     */
+    private function gravacaoAcessivel(): bool
+    {
+        $dir = $this->diretorioDeGravacao();
+
+        if ($dir === '' || ! is_dir($dir)) {
+            return true;
+        }
+
+        return is_readable($dir) && is_executable($dir);
+    }
+
+    /**
+     * 🔴 `is_file() === false` NÃO PROVA QUE O ARQUIVO NÃO EXISTE.
+     *
+     * Prova que este processo não consegue vê-lo. As duas causas são bem diferentes:
+     *
+     * · o arquivo não existe — o MixMonitor falhou, e é o defeito que esta coluna existe
+     *   para denunciar;
+     * · o php-fpm não atravessa o diretório. As gravações são `asterisk:asterisk` modo
+     *   2770 e o painel roda como `prospecta`, que precisa estar no grupo `asterisk`.
+     *   Grupo suplementar é fixado no `exec`: se a adesão foi concedida depois de o fpm
+     *   subir, os workers em execução não a têm até reiniciarem.
+     *
+     * Reportar as duas como "não está no disco" é acusar o Asterisk de um problema que
+     * pode ser nosso — e, pior, treina o operador a ignorar exatamente o aviso que um dia
+     * vai estar certo. Um alarme que mente é pior que alarme nenhum.
+     *
+     * Então a tela responde três coisas, não duas: existe, não existe, ou não sei dizer.
+     */
+    public static function situacaoDaGravacao(string $caminho): string
+    {
+        if ($caminho === '') {
+            return 'sem_gravacao';
+        }
+
+        if (is_file($caminho)) {
+            return 'existe';
+        }
+
+        // A pergunta certa antes de acusar: eu conseguiria ver este arquivo se ele
+        // estivesse aí? Sem travessia no diretório, `is_file` responde `false` para
+        // arquivo presente — e a resposta honesta é que não há resposta.
+        //
+        // Diretório INEXISTENTE não entra aqui de propósito: ele é prova de que o arquivo
+        // não existe, não de cegueira. Só diretório que existe e não abre é indecidível.
+        $diretorio = \dirname($caminho);
+        if (is_dir($diretorio) && (! is_readable($diretorio) || ! is_executable($diretorio))) {
+            return 'sem_acesso';
+        }
+
+        return 'ausente';
     }
 
     private static function texto(mixed $v): string

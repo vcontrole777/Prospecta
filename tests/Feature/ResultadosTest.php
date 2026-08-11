@@ -211,19 +211,96 @@ final class ResultadosTest extends TestCase
     }
 
     /**
-     * 🔴 Caminho de gravação no banco com arquivo ausente do disco é AVISO na tela.
+     * 🔴 TRÊS RESPOSTAS, NÃO DUAS: existe, não existe, ou não sei dizer.
      *
-     * Medido: com o diretório sem permissão o MixMonitor erra no log do Asterisk e a
-     * chamada segue normal, deixando a coluna preenchida. A linha "existe" e o áudio não.
+     * `is_file() === false` não prova ausência — prova que este processo não conseguiu
+     * ver. As duas causas pedem ações opostas: arquivo ausente é defeito do MixMonitor;
+     * diretório fechado é configuração NOSSA, porque o painel roda como `prospecta` e as
+     * gravações são `asterisk:asterisk` modo 2770.
+     *
+     * Reportar as duas como "não está no disco" acusa o Asterisk de um problema que pode
+     * ser nosso e, pior, treina o operador a ignorar o aviso que um dia estará certo.
      */
     #[Test]
-    public function gravacao_que_nao_esta_no_disco_e_avisada(): void
+    public function gravacao_ausente_e_avisada_como_defeito(): void
     {
         $id = $this->ligacao('5511911111111', 'captura_concluida', ['CPF' => '11144477735']);
-        DB::table('ligacao')->where('id', $id)->update(['gravacao' => '/tmp/nao-existe-mesmo/' . $id . '.alaw']);
+
+        // O diretório existe e é atravessável; o arquivo, não. Isso é prova de ausência.
+        $dir = sys_get_temp_dir() . '/prospecta-grav-teste';
+        @mkdir($dir, 0o777, true);
+        DB::table('ligacao')->where('id', $id)->update(['gravacao' => $dir . '/' . $id . '.alaw']);
 
         Livewire::test(Resultados::class, ['id' => $this->campanha])
-            ->assertSee('não está no disco');
+            ->assertSee('não está no disco')
+            ->assertDontSee('não consigo verificar');
+
+        @rmdir($dir);
+    }
+
+    #[Test]
+    public function gravacao_presente_mostra_o_nome_do_arquivo(): void
+    {
+        $id = $this->ligacao('5511911111111', 'captura_concluida', ['CPF' => '11144477735']);
+
+        $dir = sys_get_temp_dir() . '/prospecta-grav-teste';
+        @mkdir($dir, 0o777, true);
+        $arquivo = $dir . '/' . $id . '.alaw';
+        file_put_contents($arquivo, str_repeat("\x55", 8000));
+        DB::table('ligacao')->where('id', $id)->update(['gravacao' => $arquivo]);
+
+        Livewire::test(Resultados::class, ['id' => $this->campanha])
+            ->assertSee(basename($arquivo))
+            ->assertDontSee('não está no disco');
+
+        @unlink($arquivo);
+        @rmdir($dir);
+    }
+
+    /**
+     * Diretório que existe e não abre devolve "não sei dizer".
+     *
+     * Rodando como root a checagem é inútil — o kernel dispensa root da conferência de
+     * modo, então `is_readable` responde `true` para 0000. O teste é PULADO com a causa
+     * dita, em vez de afirmar algo que o ambiente não permite verificar.
+     */
+    #[Test]
+    public function diretorio_fechado_nao_acusa_ausencia(): void
+    {
+        if (\function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $this->markTestSkipped('root ignora modo de arquivo: is_readable responde true para 0000');
+        }
+
+        $dir = sys_get_temp_dir() . '/prospecta-grav-fechado';
+        @mkdir($dir, 0o000, true);
+
+        $this->assertSame('sem_acesso', Resultados::situacaoDaGravacao($dir . '/9.alaw'));
+
+        @chmod($dir, 0o755);
+        @rmdir($dir);
+    }
+
+    /** Sem caminho no banco não há nada a afirmar: gravação desligada é um traço. */
+    #[Test]
+    public function sem_caminho_no_banco_nao_e_defeito(): void
+    {
+        $this->assertSame('sem_gravacao', Resultados::situacaoDaGravacao(''));
+    }
+
+    /**
+     * Diretório INEXISTENTE é prova de ausência, não de cegueira.
+     *
+     * Foi um erro meu no primeiro rascunho desta função: tratar `! is_dir()` como "não
+     * consigo ver" faria toda instância com gravação desligada mostrar "não consigo
+     * verificar" — um aviso sobre permissão onde não há permissão envolvida.
+     */
+    #[Test]
+    public function diretorio_inexistente_conta_como_ausente(): void
+    {
+        $this->assertSame(
+            'ausente',
+            Resultados::situacaoDaGravacao('/tmp/isto-nao-existe-mesmo-' . getmypid() . '/9.alaw'),
+        );
     }
 
     // ---------------------------------------------------------------- auxiliares
