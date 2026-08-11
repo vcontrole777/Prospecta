@@ -60,6 +60,60 @@
             </div>
         @endforeach
 
+        @if ($tipo === 'whatsapp')
+            {{-- 🔴 O QUE O PAINEL DESCOBRE SOZINHO, dito na tela.
+                 A tela pedia cinco valores e agora pede dois. Sem dizer isso, o operador
+                 acostumado com o formulário antigo procuraria os campos que faltam e
+                 concluiria que a tela está incompleta. --}}
+            <div class="border border-[var(--rule)] p-3 text-sm">
+                <p class="text-base-content/70">
+                    O <strong>número</strong> e o <strong>token do webhook</strong> não são
+                    pedidos: o painel descobre o primeiro pelo seu token de acesso e gera o
+                    segundo. Salvar consulta a Meta uma vez para isso.
+                </p>
+            </div>
+
+            @if ($erroDescoberta !== '')
+                <div class="border border-warning/50 p-3 text-sm">
+                    <p class="text-warning">Não consegui descobrir o número</p>
+                    <p class="mt-1 text-base-content/70">{{ $erroDescoberta }}</p>
+                    <div class="mt-2 flex items-center gap-2">
+                        <button type="button" wire:click="descobrir" class="btn btn-xs">Tentar de novo</button>
+                        <span class="rotulo">ou preencha o ID abaixo</span>
+                    </div>
+                </div>
+            @endif
+
+            @if ($numerosEncontrados !== [])
+                {{-- Mais de um número: a escolha é por NÚMERO, não por id. O operador
+                     reconhece o número dele; o id de 15 dígitos não diz nada. --}}
+                <div>
+                    <span class="rotulo">Qual número esta integração usa?</span>
+                    <div class="mt-2 flex flex-col gap-2">
+                        @foreach ($numerosEncontrados as $n)
+                            <label class="flex items-center gap-3 border border-[var(--rule)] p-2 text-sm">
+                                <input type="radio" wire:model="phone_number_id" value="{{ $n['id'] }}" class="radio radio-sm">
+                                <span class="identificador">{{ $n['numero'] !== '' ? $n['numero'] : $n['id'] }}</span>
+                                @if ($n['nome'] !== '')
+                                    <span class="text-base-content/60">{{ $n['nome'] }}</span>
+                                @endif
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
+            @if ($numeroManual || $phone_number_id !== '')
+                <div>
+                    <x-input label="Phone Number ID" wire:model="phone_number_id" class="identificador" />
+                    <p class="mt-1 text-sm text-base-content/60">
+                        É o ID do número, não o número. Normalmente descoberto sozinho — só
+                        preencha à mão se a busca não funcionar.
+                    </p>
+                </div>
+            @endif
+        @endif
+
         {{-- Isto não é aviso genérico de segurança: é a consequência operacional de
              a APP_KEY virar chave de dados, e ela é irreversível na prática. --}}
         <div class="border border-[var(--rule)] p-3 text-sm text-base-content/60">
@@ -78,6 +132,48 @@
             @endif
         </div>
     </form>
+
+    @if ($webhook !== null)
+        {{-- 🔴 A METADE QUE NÃO DÁ PARA AUTOMATIZAR: a Meta exige que alguém cadastre a URL
+             e o token no painel dela. O que dá para automatizar é não fazer o operador
+             inventar nem montar nada — a URL é derivada e o token foi gerado. --}}
+        <div class="mt-6 border border-[var(--rule)] p-4">
+            <h2 class="text-sm font-semibold">Cadastre o webhook no painel da Meta</h2>
+            <p class="mt-1 text-sm text-base-content/70">
+                Copie os dois valores abaixo. É o único passo que precisa ser feito lá.
+            </p>
+
+            <div class="mt-3 flex flex-col gap-3">
+                <div>
+                    <span class="rotulo">URL de callback</span>
+                    <p class="identificador mt-1 break-all text-sm">{{ $webhook['url'] }}</p>
+                </div>
+                <div>
+                    <span class="rotulo">Verify token</span>
+                    {{-- Em claro, ao contrário do token de acesso: é um aperto de mão
+                         combinado com a Meta, não credencial que dê acesso a nada — e não
+                         serve para nada se não puder ser copiado. --}}
+                    <p class="identificador mt-1 break-all text-sm">{{ $webhook['verify'] !== '' ? $webhook['verify'] : '—' }}</p>
+                </div>
+            </div>
+
+            @unless ($webhook['https'])
+                {{-- Não é detalhe: a Meta RECUSA certificado autoassinado e não aceita HTTP.
+                     Sem dizer aqui, o operador cadastraria, levaria erro no painel dela e
+                     procuraria o problema do nosso lado. --}}
+                <div class="mt-3 border border-warning/50 p-3 text-sm">
+                    <p class="text-warning">A Meta vai recusar esta URL</p>
+                    <p class="mt-1 text-base-content/70">
+                        Ela exige <strong>HTTPS com certificado válido</strong> — não aceita
+                        HTTP nem certificado autoassinado. Esta instância responde por IP, e o
+                        certbot não emite certificado para IP. Aponte um domínio para esta
+                        máquina e rode o provisionamento de novo: ele detecta o nome e emite o
+                        certificado sozinho.
+                    </p>
+                </div>
+            @endunless
+        </div>
+    @endif
 
     @if ($integracoes === [])
         <div class="mt-6 border border-[var(--rule)] p-8 text-center text-sm">

@@ -11,7 +11,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\Test;
+use App\Worker\Transporte;
 use Tests\TestCase;
+use Tests\Unit\Worker\TransporteFalso;
 
 final class IntegracoesTest extends TestCase
 {
@@ -23,6 +25,48 @@ final class IntegracoesTest extends TestCase
     {
         parent::setUp();
         $this->actingAs(User::factory()->create());
+    }
+
+    /**
+     * 🔴 A DESCOBERTA VAI POR DUBLÊ, SEMPRE.
+     *
+     * A tela consulta a Meta para achar o Phone Number ID. Sem o dublê, o teste sairia para a
+     * internet com um token inventado — e passaria ou falharia por rede, não por regra.
+     *
+     * @param  list<array{id:string, numero:string, nome:string}>  $numeros
+     */
+    private function metaResponde(array $numeros = [['id' => '555000', 'numero' => '+55 11 9', 'nome' => 'Empresa']]): TransporteFalso
+    {
+        $falso = new TransporteFalso();
+        $falso->respostasGet = [
+            ['http' => 200, 'corpo' => (string) json_encode(['data' => [
+                'is_valid' => true,
+                'granular_scopes' => [['scope' => 'whatsapp_business_messaging', 'target_ids' => ['waba-1']]],
+            ]]), 'erro' => null],
+            ['http' => 200, 'corpo' => (string) json_encode(['data' => array_map(
+                static fn (array $n): array => [
+                    'id' => $n['id'],
+                    'display_phone_number' => $n['numero'],
+                    'verified_name' => $n['nome'],
+                ],
+                $numeros,
+            )]), 'erro' => null],
+        ];
+
+        $this->app->instance(Transporte::class, $falso);
+
+        return $falso;
+    }
+
+    /** A Meta recusando, para o caminho do campo manual. */
+    private function metaRecusa(string $motivo = 'Invalid OAuth access token'): void
+    {
+        $falso = new TransporteFalso();
+        $falso->respostasGet = [
+            ['http' => 400, 'corpo' => (string) json_encode(['error' => ['message' => $motivo]]), 'erro' => null],
+        ];
+
+        $this->app->instance(Transporte::class, $falso);
     }
 
     #[Test]
@@ -66,7 +110,7 @@ final class IntegracoesTest extends TestCase
             ->call('editar', $id)
             ->assertSet('nome', 'WhatsApp principal')
             ->assertSet('credenciais.token', '', 'o segredo não volta para a tela')
-            ->assertSet('credenciais.phone_number_id', '555000');
+            ->assertSet('phone_number_id', '555000', 'o número descoberto fica selecionado');
     }
 
     /**
@@ -122,9 +166,7 @@ final class IntegracoesTest extends TestCase
         Livewire::test(Integracoes::class)
             ->set('nome', 'Sem token')
             ->set('credenciais.token', '')
-            ->set('credenciais.phone_number_id', '555000')
             ->set('credenciais.app_secret', 'x')
-            ->set('credenciais.verify_token', 'y')
             ->call('salvar')
             ->assertHasErrors('credenciais.token');
 
@@ -252,16 +294,176 @@ final class IntegracoesTest extends TestCase
             ->assertDontSee('Unclosed');
     }
 
+
+    // ------------------------------------------------- o que a tela deixou de pedir
+
+    /**
+     * 🔴 SÓ DOIS CAMPOS PEDIDOS, e é a razão desta mudança.
+     *
+     * Eram cinco: token, Phone Number ID, versão da API, App Secret e Verify Token. Três não
+     * precisavam ser perguntados, e perguntar menos é perguntar menos coisa errada.
+     */
+    #[Test]
+    public function pede_apenas_token_e_app_secret(): void
+    {
+        $campos = array_keys(Integracoes::CAMPOS['whatsapp']['meta']);
+
+        $this->assertSame(['token', 'app_secret'], $campos);
+    }
+
+    /**
+     * 🔴 O PHONE NUMBER ID É DESCOBERTO PELO TOKEN.
+     *
+     * Era um número de 15 dígitos copiado de outro painel: erra sem avisar, e o erro aparece
+     * só na primeira mensagem que não sai — como `Unsupported get request`, que não menciona
+     * número errado.
+     */
+    #[Test]
+    public function descobre_o_phone_number_id_pelo_token(): void
+    {
+        $falso = $this->metaResponde([['id' => '999888777', 'numero' => '+55 11 3333-4444', 'nome' => 'Loja']]);
+
+        $this->cadastrarSemDuble()->assertHasNoErrors();
+
+        $cred = (new Cofre((string) config('app.key')))
+            ->decifrarDaColuna((string) DB::table('integracao')->value('credenciais'));
+
+        $this->assertSame('999888777', $cred['phone_number_id'] ?? null);
+
+        // Dois passos: `debug_token` acha as contas, `phone_numbers` acha os números.
+        $this->assertCount(2, $falso->urlsGet);
+        $this->assertStringContainsString('debug_token', $falso->urlsGet[0]);
+        $this->assertStringContainsString('/phone_numbers', $falso->urlsGet[1]);
+    }
+
+    /** O verify token é GERADO, e não pedido: não havia nada para o operador escolher. */
+    #[Test]
+    public function gera_o_verify_token_e_a_versao_da_api(): void
+    {
+        $this->cadastrar()->assertHasNoErrors();
+
+        $cred = (new Cofre((string) config('app.key')))
+            ->decifrarDaColuna((string) DB::table('integracao')->value('credenciais'));
+
+        $this->assertSame('v21.0', $cred['versao_api'] ?? null);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string) ($cred['verify_token'] ?? ''));
+    }
+
+    /**
+     * 🔴 O VERIFY TOKEN GERADO É PRESERVADO entre gravações.
+     *
+     * O operador já o copiou para o painel da Meta. Gerar um novo a cada gravação faria o
+     * webhook parar de ser aceito sem ninguém ter mexido nele — e o sintoma seria a Meta
+     * recusando a verificação, que não aponta para cá.
+     */
+    #[Test]
+    public function editar_nao_troca_o_verify_token(): void
+    {
+        $this->cadastrar();
+        $id = (int) DB::table('integracao')->value('id');
+        $cofre = new Cofre((string) config('app.key'));
+
+        $antes = $cofre->decifrarDaColuna((string) DB::table('integracao')->value('credenciais'))['verify_token'];
+
+        $this->metaResponde();
+        Livewire::test(Integracoes::class)
+            ->call('editar', $id)
+            ->set('nome', 'Outro nome')
+            ->call('salvar')
+            ->assertHasNoErrors();
+
+        $depois = $cofre->decifrarDaColuna((string) DB::table('integracao')->value('credenciais'))['verify_token'];
+
+        $this->assertSame($antes, $depois);
+    }
+
+    /**
+     * Com mais de um número, o operador ESCOLHE — e nada é gravado antes disso.
+     *
+     * Gravar um dos dois por conta própria mandaria mensagem pelo número errado, com a conta
+     * certa: erro que só aparece quando alguém repara no remetente.
+     */
+    #[Test]
+    public function com_varios_numeros_pergunta_qual_e_nao_grava(): void
+    {
+        $this->metaResponde([
+            ['id' => 'aaa', 'numero' => '+55 11 1111-1111', 'nome' => 'Matriz'],
+            ['id' => 'bbb', 'numero' => '+55 21 2222-2222', 'nome' => 'Filial'],
+        ]);
+
+        $componente = $this->cadastrarSemDuble();
+
+        $this->assertSame(0, DB::table('integracao')->count(), 'não grava sem a escolha');
+        $componente->assertSee('+55 11 1111-1111')->assertSee('Filial');
+
+        // Escolhido, grava — sem consultar a Meta de novo.
+        $componente->set('phone_number_id', 'bbb')->call('salvar')->assertHasNoErrors();
+
+        $cred = (new Cofre((string) config('app.key')))
+            ->decifrarDaColuna((string) DB::table('integracao')->value('credenciais'));
+        $this->assertSame('bbb', $cred['phone_number_id'] ?? null);
+    }
+
+    /**
+     * 🔴 AUTOMATIZAR NÃO PODE VIRAR BECO SEM SAÍDA.
+     *
+     * Token com escopo estreito, conta em revisão e falha de rede são casos reais. A tela diz
+     * o motivo que a Meta deu e revela o campo manual, em vez de insistir numa busca que não
+     * funciona.
+     */
+    #[Test]
+    public function quando_a_descoberta_falha_mostra_o_motivo_e_libera_o_campo_manual(): void
+    {
+        $this->metaRecusa('Invalid OAuth access token');
+
+        $componente = $this->cadastrarSemDuble();
+
+        $this->assertSame(0, DB::table('integracao')->count());
+        $componente->assertSee('Invalid OAuth access token')
+            ->assertSet('numeroManual', true);
+
+        // Preenchido à mão, grava — e não consulta a Meta de novo.
+        $componente->set('phone_number_id', '123456')->call('salvar')->assertHasNoErrors();
+        $this->assertSame(1, DB::table('integracao')->count());
+    }
+
+    /**
+     * A caixa do webhook mostra a URL e AVISA que a Meta recusa sem HTTPS.
+     *
+     * Ela exige certificado válido e não aceita HTTP. Sem o aviso, o operador cadastraria,
+     * levaria erro no painel dela e procuraria o problema do nosso lado.
+     */
+    #[Test]
+    public function mostra_o_que_colar_na_meta_e_avisa_sobre_https(): void
+    {
+        $this->cadastrar();
+        $id = (int) DB::table('integracao')->value('id');
+        Livewire::test(Integracoes::class)->call('usar', $id);
+
+        Livewire::test(Integracoes::class)
+            ->assertSee('/webhook/whatsapp')
+            ->assertSee('Cadastre o webhook no painel da Meta')
+            ->assertSee('A Meta vai recusar esta URL');
+    }
+
     private function cadastrar(): \Livewire\Features\SupportTesting\Testable
+    {
+        // A tela descobre o Phone Number ID pelo token, então todo cadastro passa pela Meta —
+        // e no teste passa pelo dublê.
+        $this->metaResponde();
+
+        return $this->cadastrarSemDuble();
+    }
+
+    /** Para quem já preparou a resposta da Meta e quer controlá-la. */
+    private function cadastrarSemDuble(): \Livewire\Features\SupportTesting\Testable
     {
         return Livewire::test(Integracoes::class)
             ->set('nome', 'WhatsApp principal')
             ->set('credenciais.token', self::TOKEN)
-            ->set('credenciais.phone_number_id', '555000')
             // O webhook exige estes dois: sem app secret o endpoint recusa TODO
             // evento, e o verify token é o aperto de mão.
             ->set('credenciais.app_secret', 'app-secret-da-meta')
-            ->set('credenciais.verify_token', 'token-do-webhook')
             ->call('salvar');
     }
 }

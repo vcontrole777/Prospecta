@@ -16,6 +16,44 @@ final class TransporteCurl implements Transporte
      * @param array<string,string> $cabecalhos
      * @return array{http:int, corpo:string, erro:?string}
      */
+    /**
+     * @param  array<string,string>  $cabecalhos
+     * @return array{http:int, corpo:string, erro:?string}
+     */
+    public function getJson(string $url, array $cabecalhos): array
+    {
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return ['http' => 0, 'corpo' => '', 'erro' => 'curl_init falhou'];
+        }
+
+        $linhas = [];
+        foreach ($cabecalhos as $k => $v) {
+            $linhas[] = "{$k}: {$v}";
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_HTTPHEADER => $linhas,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $this->timeoutSeg,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            // Sem seguir redirecionamento, pelo mesmo motivo do POST: reenviaria o
+            // cabeçalho com o token para um destino que não é o da API.
+            CURLOPT_FOLLOWLOCATION => false,
+        ]);
+
+        $resposta = curl_exec($ch);
+        $http = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $erro = curl_errno($ch) !== 0 ? curl_error($ch) : null;
+        curl_close($ch);
+
+        return [
+            'http' => $http,
+            'corpo' => is_string($resposta) ? $resposta : '',
+            'erro' => $erro,
+        ];
+    }
+
     public function postJson(string $url, array $corpo, array $cabecalhos): array
     {
         $ch = curl_init($url);
