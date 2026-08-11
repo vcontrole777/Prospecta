@@ -13,6 +13,7 @@ use App\Livewire\ImportarLista;
 use App\Http\Controllers\WebhookWhatsapp;
 use App\Livewire\Integracoes;
 use App\Livewire\Resultados;
+use App\Livewire\Rota;
 use App\Livewire\Entrar;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -63,6 +64,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/audios', Audios::class)->name('audios');
     Route::get('/binas', Binas::class)->name('binas');
     Route::get('/bloqueios', Bloqueios::class)->name('bloqueios');
+    Route::get('/rota', Rota::class)->name('rota');
     Route::get('/integracoes', Integracoes::class)->name('integracoes');
     Route::get('/conversas', Conversas::class)->name('conversas');
     Route::get('/configuracao', Configuracao::class)->name('configuracao');

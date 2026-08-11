@@ -1,0 +1,23 @@
+; Gerado pelo Ansible — não edite na máquina.
+;
+; 🔴 O TRONCO NÃO ESTÁ MAIS AQUI. A Rota (host, credencial, from_domain e prefixo
+; técnico) é editada na tela **Rota** do painel, que escreve `pjsip-rota.conf` e manda o
+; Asterisk recarregar por AMI.
+;
+; O playbook deixou de gerá-la de propósito: com dois escritores no mesmo arquivo, a
+; reexecução do playbook reverteria em silêncio o que o operador salvou no painel — e ele
+; não teria como perceber, porque a tela continuaria mostrando o valor dele.
+;
+; Este arquivo guarda só o que é da MÁQUINA e não muda por fornecedor.
+
+; O transporte é da máquina, não da Rota. Fica aqui porque duplicá-lo no arquivo do painel
+; faria o Asterisk ver duas seções de mesmo nome a cada recarga.
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0
+
+; A Rota, escrita pelo painel. `#include` e não `#tryinclude`: se o arquivo desaparecer, é
+; melhor a recarga falhar alto do que o Asterisk subir sem endpoint nenhum e toda chamada
+; morrer com "no such endpoint" — erro que aparece como problema de fornecedor.
+#include pjsip-rota.conf

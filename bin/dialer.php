@@ -27,6 +27,7 @@ use App\Dialer\Politica;
 use App\Dialer\Protecao;
 use App\Dialer\Ritmo;
 use App\Dominio\Bina;
+use App\Dominio\Rota;
 use App\Fastagi\Registro;
 
 $conf = require dirname(__DIR__) . '/config/dialer.php';
@@ -64,6 +65,10 @@ $politica = new Politica();
 $protecao = new Protecao();
 $ritmo = new Ritmo(cpsMaximo: $conf['cps_maximo']);
 $bina = new Bina();
+
+// Só registra a ausência de Rota UMA vez por período, não a cada volta: o laço gira
+// várias vezes por segundo e encheria o journal com a mesma linha.
+$avisouSemRota = false;
 
 /**
  * Janela deslizante por Campanha, para a proteção. Em memória de propósito:
@@ -305,6 +310,39 @@ while ($rodando) {
         continue;
     }
 
+    // ---- a Rota em vigor ---------------------------------------------------
+    //
+    // 🔴 LIDA A CADA VOLTA, DO BANCO. Antes vinha de `PROSPECTA_TRONCO` e
+    // `PROSPECTA_TECH_PREFIX`, lidos na PARTIDA — então o operador trocaria o prefixo na
+    // tela de Rota, veria o valor novo salvo, e a discagem seguiria pelo antigo. Sem erro
+    // em lugar nenhum, e o prefixo é seleção de CAPACIDADE: fora da Platinum, CallerID e
+    // DTMF falham em silêncio.
+    //
+    // Uma linha por volta é custo irrelevante, e é o que faz a troca valer sem reiniciar —
+    // reiniciar derrubaria a chamada em curso.
+    $r = $fila->rota();
+    $rota = new Rota(
+        host: $r['host'],
+        usuario: $r['usuario'],
+        senha: '',   // o dialer não precisa da senha: quem autentica é o Asterisk
+        fromDominio: $r['from_dominio'],
+        fromUsuario: $r['from_usuario'],
+        techPrefix: $r['tech_prefix'],
+    );
+
+    // 🔴 RECUSA EM VEZ DE DISCAR PARA UM ENDPOINT QUE NÃO EXISTE. Sem Rota, o `Originate`
+    // falharia com erro de canal — que aparece como problema de tronco e manda o operador
+    // investigar o fornecedor, quando o que falta é preencher uma tela.
+    if (! $rota->configurado()) {
+        if (! $avisouSemRota) {
+            $log->linha('sem_rota', 'Rota não configurada no painel; não origino', []);
+            $avisouSemRota = true;
+        }
+        usleep((int) ($conf['intervalo_seg'] * 1000000));
+        continue;
+    }
+    $avisouSemRota = false;
+
     // ---- origina -----------------------------------------------------------
     foreach ($fila->campanhasAtivas($conf['canais_contratados'], $conf['timeout_toque_seg']) as $c) {
         $campanhaId = $c['id'];
@@ -379,7 +417,7 @@ while ($rodando) {
             $maxTentativasDaLigacao[$ligacaoId] = $c['max_tentativas'];
 
             $resp = $ami->originar(
-                canal: sprintf('%s/%s%s@%s', $conf['tecnologia'], $conf['tech_prefix'], $lead['telefone'], $conf['tronco']),
+                canal: $rota->canal($conf['tecnologia'], $lead['telefone']),
                 ligacaoId: $ligacaoId,
                 contexto: $conf['contexto'],
                 extensao: 's',

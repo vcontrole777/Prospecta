@@ -27,19 +27,16 @@ ami_segredo: SUBSTITUA
 # Quantidade de canais contratada. É o limite do produto, e o dialer respeita.
 canais_contratados: 60
 
-# Tronco SIP. O painel NÃO valida esta configuração — decisão registrada no mapa.
-# O operador digita certo.
-tronco:
-  nome: idt
-  host: 203.0.113.20   # endereço real do proxy do fornecedor vai no seu host_vars
-  usuario: SUBSTITUA
-  senha: SUBSTITUA
-  # from_user DESLIGADO de propósito. Ele sobrepõe o CALLERID(num) e
-  # torna toda Regra de BINA inócua, em silêncio. Só preencha se o
-  # fornecedor exigir, aceitando que BINA não funcionará. Ver #22.
-  # from_user: SUBSTITUA
-  from_domain: SUBSTITUA
-  # Prefixo técnico é SELEÇÃO DE CAPACIDADE, não detalhe de configuração:
-  # na IDT, CallerID e DTMF só funcionam na rota Platinum (99901). Em rota
-  # mais barata os dois falham em silêncio — e o produto inteiro é "digite 2".
-  tech_prefix: "99901"
+# 🔴 A ROTA NÃO É MAIS CONFIGURADA AQUI.
+#
+# Host, usuário, senha, from_domain e prefixo técnico são editados na tela **Rota** do
+# painel, que grava em `configuracao.rota_*` (senha cifrada), escreve
+# `/etc/asterisk/pjsip-rota.conf` e manda o Asterisk recarregar por AMI.
+#
+# O playbook deixou de gerar isso de propósito: com dois escritores no mesmo arquivo, uma
+# reexecução reverteria em silêncio o que o operador salvou — e a tela continuaria
+# mostrando o valor dele, então ninguém perceberia.
+#
+# Consequência: numa instância NOVA, alguém precisa abrir o painel e preencher a Rota uma
+# vez. Até lá o dialer RECUSA originar e registra `sem_rota`, em vez de discar para um
+# endpoint que não existe.

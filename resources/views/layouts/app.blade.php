@@ -51,6 +51,7 @@
                 <a href="{{ route('audios') }}" class="rotulo hover:text-primary">Áudios</a>
                 <a href="{{ route('binas') }}" class="rotulo hover:text-primary">BINA</a>
                 <a href="{{ route('bloqueios') }}" class="rotulo hover:text-primary">Bloqueios</a>
+                <a href="{{ route('rota') }}" class="rotulo hover:text-primary">Rota</a>
                 <a href="{{ route('integracoes') }}" class="rotulo hover:text-primary">Integrações</a>
                 <a href="{{ route('configuracao') }}" class="rotulo hover:text-primary">Configuração</a>
 

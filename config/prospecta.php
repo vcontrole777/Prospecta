@@ -20,4 +20,14 @@ return [
     // operador que sabe quanto a oferta dele precisa falar. O limite duro que
     // importa é o da `abertura`, e aquele é áudio de sistema, não de Campanha.
     'audio_limite_seg' => (float) env('PROSPECTA_AUDIO_LIMITE_SEG', '120'),
+
+    /*
+     * O arquivo de pjsip que a tela de Rota escreve.
+     *
+     * 🔴 UM arquivo só, incluído pelo `pjsip.conf`. O painel roda como `prospecta` e não
+     * escreve em `/etc/asterisk`; o provisionamento cria este arquivo com dono
+     * `asterisk:prospecta` e modo 0660. Privilégio mínimo: o painel escreve aquele arquivo
+     * e nada mais, e não ganha `sudo` nem a CLI do Asterisk.
+     */
+    'pjsip_rota' => (string) env('PROSPECTA_PJSIP_ROTA', '/etc/asterisk/pjsip-rota.conf'),
 ];

@@ -61,9 +61,16 @@ return [
     // 6h da manhã, com a tela mostrando o horário certo.
     'fuso' => $ler('APP_TIMEZONE', 'America/Sao_Paulo'),
 
-    'tronco' => $ler('PROSPECTA_TRONCO', 'idt'),
-    // Prefixo técnico é SELEÇÃO DE CAPACIDADE: na IDT, CallerID e DTMF só
-    // funcionam na rota Platinum. Em rota mais barata os dois falham em silêncio.
-    'tech_prefix' => $ler('PROSPECTA_TECH_PREFIX', '99901'),
+    /*
+     * 🔴 `PROSPECTA_TRONCO` E `PROSPECTA_TECH_PREFIX` SAÍRAM DAQUI.
+     *
+     * A Rota passou a vir do banco, lida a cada volta do dialer, porque a tela de Rota a
+     * escreve lá. Manter as chaves aqui seria manter uma SEGUNDA fonte para o mesmo fato:
+     * alguém setaria `PROSPECTA_TECH_PREFIX` no `.env`, reiniciaria o serviço, e nada
+     * mudaria — e o prefixo é seleção de capacidade, então o sintoma seria Campanha sem
+     * resposta nenhuma, sem erro em log.
+     *
+     * O nome do endpoint é constante em `App\Dominio\Rota::NOME`.
+     */
     'contexto' => $ler('PROSPECTA_CONTEXTO', 'prospecta-saida'),
 ];

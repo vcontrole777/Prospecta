@@ -291,13 +291,40 @@
             or st_audio.stat.size == 0
             or st_audio.stat.size > item.max_bytes
 
-        - name: Configuração do tronco
+        # 🔴 O TRONCO SAIU DAQUI. Agora é a **Rota**, editada no painel.
+        #
+        # O playbook deixou de gerar o endpoint de propósito: dois escritores no mesmo
+        # arquivo fariam a reexecução do playbook reverter em silêncio o que o operador
+        # salvou — e ele não perceberia, porque a tela continuaria mostrando o valor dele.
+        # É a mesma classe de defeito da retenção da gravação, que tinha duas fontes com
+        # defaults diferentes.
+        #
+        # O que sobra aqui é o que é da MÁQUINA: o transporte e o `#include`.
+        - name: Base do pjsip (transporte e include da Rota)
           ansible.builtin.template:
-            src: templates/pjsip-tronco.conf.j2
+            src: templates/pjsip-base.conf.j2
             dest: /etc/asterisk/pjsip.conf
             owner: asterisk
             group: asterisk
             mode: "0640"
+          notify: Recarregar o pjsip
+
+        # 🔴 O ARQUIVO QUE O PAINEL ESCREVE, e o privilégio mínimo que isso exige.
+        #
+        # Dono `asterisk` para o Asterisk ler; grupo da aplicação para o php-fpm escrever;
+        # 0660 e nada de "outros", porque o arquivo contém a SENHA da rota em claro — o
+        # pjsip não lê segredo cifrado, então a proteção é o modo, como no `.env`.
+        #
+        # `force: false`: só cria se não existir. Com `force: true` a reexecução do playbook
+        # apagaria a Rota que o operador salvou — exatamente o que a mudança acima evita.
+        - name: Arquivo da Rota, escrito pelo painel
+          ansible.builtin.copy:
+            dest: /etc/asterisk/pjsip-rota.conf
+            content: "; Rota ainda não configurada. Preencha a tela Rota no painel.\n"
+            owner: asterisk
+            group: "{{ app_usuario }}"
+            mode: "0660"
+            force: false
           notify: Recarregar o pjsip
 
         # O elo entre o dialer e o fastagi. Sem este contexto o Asterisk recusa

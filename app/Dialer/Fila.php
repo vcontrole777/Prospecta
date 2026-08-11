@@ -342,6 +342,57 @@ final class Fila
      * que é o comportamento de antes — a restrição passa a existir só quando alguém a
      * configura.
      */
+    /**
+     * A Rota em vigor, do BANCO.
+     *
+     * 🔴 DO BANCO, e não do `.env`, e a diferença é a razão da tela de Rota existir.
+     *
+     * `PROSPECTA_TRONCO` e `PROSPECTA_TECH_PREFIX` eram lidos na PARTIDA do dialer. Com a
+     * tela escrevendo no banco e o dialer lendo do ambiente, o operador trocaria o prefixo
+     * técnico, veria o valor novo salvo, e a discagem seguiria pelo antigo — sem erro em
+     * lugar nenhum. E o prefixo é seleção de CAPACIDADE: fora da rota Platinum, CallerID e
+     * DTMF falham em silêncio, e o produto inteiro é "escute e digite uma tecla".
+     *
+     * Lido a cada volta, como as Campanhas: é uma linha, o custo é irrelevante, e assim a
+     * mudança vale sem reiniciar o serviço. Reiniciar seria a outra opção, e ela some com a
+     * chamada em curso.
+     *
+     * A senha vem CIFRADA na coluna; decifrar é do chamador, que é quem tem o `Cofre`.
+     * Devolver aqui a senha em claro obrigaria esta classe a conhecer a chave mestra.
+     *
+     * @return array{host:string, usuario:string, senha_cifrada:string, from_dominio:string, from_usuario:string, tech_prefix:string}
+     */
+    public function rota(): array
+    {
+        $vazia = [
+            'host' => '', 'usuario' => '', 'senha_cifrada' => '',
+            'from_dominio' => '', 'from_usuario' => '', 'tech_prefix' => '',
+        ];
+
+        $st = $this->pdo->query(
+            'SELECT rota_host, rota_usuario, rota_senha, rota_from_dominio,
+                    rota_from_usuario, rota_tech_prefix
+               FROM configuracao WHERE id = 1'
+        );
+        if ($st === false) {
+            return $vazia;
+        }
+
+        $linha = $st->fetch();
+        if (! is_array($linha)) {
+            return $vazia;
+        }
+
+        return [
+            'host' => self::texto($linha['rota_host'] ?? null) ?? '',
+            'usuario' => self::texto($linha['rota_usuario'] ?? null) ?? '',
+            'senha_cifrada' => self::texto($linha['rota_senha'] ?? null) ?? '',
+            'from_dominio' => self::texto($linha['rota_from_dominio'] ?? null) ?? '',
+            'from_usuario' => self::texto($linha['rota_from_usuario'] ?? null) ?? '',
+            'tech_prefix' => self::texto($linha['rota_tech_prefix'] ?? null) ?? '',
+        ];
+    }
+
     public function janelaDeTrabalho(): Janela
     {
         $st = $this->pdo->query('SELECT horario_inicio, horario_fim, dias_semana FROM configuracao WHERE id = 1');

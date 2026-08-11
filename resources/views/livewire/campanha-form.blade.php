@@ -78,10 +78,15 @@
             @endif
 
             @if ($bina_regra === 'lista')
-                <p class="text-sm text-warning">
-                    A lista de números é cadastrada em tela própria, que ainda não
-                    existe. Com a lista vazia, esta regra cai no número único da
-                    Campanha e, se ele também estiver vazio, em nenhum CallerID.
+                {{-- Este texto dizia que a tela "ainda não existe". Ela existe desde
+                     10/08, e o aviso passou a mandar o operador não usar um recurso que
+                     funciona — texto desatualizado mente com a mesma eficácia de um
+                     defeito. --}}
+                <p class="text-sm text-base-content/70">
+                    Os números são cadastrados na tela <a href="{{ route('binas') }}"
+                    class="text-primary hover:underline">BINA</a>, que mostra a cobertura
+                    por DDD. Com a lista vazia, esta regra cai no número único da Campanha
+                    e, se ele também estiver vazio, em nenhum CallerID.
                 </p>
             @endif
 
