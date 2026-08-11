@@ -180,4 +180,95 @@ final class IniciarCampanhaTest extends TestCase
             'status' => $status,
         ]);
     }
+
+    // ---------------------------------------------- a chamada cabe na reconciliação?
+
+    /**
+     * 🔴 RECUSA CAMPANHA CUJA CHAMADA PODE PASSAR DA JANELA DA RECONCILIAÇÃO.
+     *
+     * `Fila::reconciliar` encerra Ligação aberta há mais de `limite_ligacao_seg` e devolve
+     * o Lead à Fila — a única prova que ela tem de que o evento de AMI se perdeu é o
+     * tempo. Chamada VIVA que passa do limite é declarada morta: o canal é dado como
+     * livre, o Lead volta à Fila e é discado DE NOVO, para alguém que está na linha
+     * naquele instante, no meio de digitar o CPF.
+     *
+     * Alcançável com valores que o formulário aceita — cinco campos, duas tentativas,
+     * prompt de 20 s, espera de 20 s. Recadastramento comum, não caso adversarial.
+     */
+    #[Test]
+    public function recusa_captura_que_pode_passar_do_limite_da_reconciliacao(): void
+    {
+        // 20 s de prompt: 160000 bytes de alaw. O áudio existe no disco, então a guarda
+        // de arquivo passa e a única falta é a duração.
+        $prompt = $this->audioComArquivo('Pergunta longa', 20);
+
+        $id = $this->campanha(['tipo' => 'captura']);
+        $this->lead($id);
+
+        for ($i = 1; $i <= 5; $i++) {
+            $definicao = (int) DB::table('campo_definicao')->insertGetId([
+                'nome' => 'Campo ' . $i, 'tipo' => 'numero', 'tamanho' => 6,
+            ]);
+            DB::table('campanha_campo')->insert([
+                'campanha_id' => $id, 'campo_definicao_id' => $definicao, 'ordem' => $i,
+                'obrigatorio' => 1, 'tentativas' => 2, 'timeout_seg' => 20,
+                'audio_prompt_id' => $prompt,
+            ]);
+        }
+
+        Livewire::test(Campanhas::class)
+            ->call('iniciar', $id)
+            ->assertSee('a chamada pode durar até')
+            ->assertSee('discaria de novo para quem ainda está na linha');
+
+        $this->assertSame(0, (int) DB::table('campanha')->where('id', $id)->value('status'));
+    }
+
+    /** Captura que cabe no limite entra no ar normalmente. */
+    #[Test]
+    public function aceita_captura_que_cabe_no_limite(): void
+    {
+        $prompt = $this->audioComArquivo('Pergunta', 4);
+
+        $id = $this->campanha(['tipo' => 'captura']);
+        $this->lead($id);
+
+        for ($i = 1; $i <= 3; $i++) {
+            $definicao = (int) DB::table('campo_definicao')->insertGetId([
+                'nome' => 'Campo ' . $i, 'tipo' => 'numero', 'tamanho' => 6,
+            ]);
+            DB::table('campanha_campo')->insert([
+                'campanha_id' => $id, 'campo_definicao_id' => $definicao, 'ordem' => $i,
+                'obrigatorio' => 1, 'tentativas' => 2, 'timeout_seg' => 12,
+                'audio_prompt_id' => $prompt,
+            ]);
+        }
+
+        Livewire::test(Campanhas::class)
+            ->call('iniciar', $id)
+            ->assertDontSee('a chamada pode durar até');
+
+        $this->assertSame(1, (int) DB::table('campanha')->where('id', $id)->value('status'));
+    }
+
+    /**
+     * O mesmo para opt-in: áudio longo repetido em cada tentativa também estoura.
+     *
+     * `GET DATA` toca o arquivo e só então espera pelo dígito, então quem não digita ouve
+     * a mensagem inteira de novo — o áudio multiplica pelas tentativas da URA.
+     */
+    #[Test]
+    public function recusa_opt_in_com_audio_longo_repetido_muitas_vezes(): void
+    {
+        $longo = $this->audioComArquivo('Mensagem longa', 90);
+
+        $id = $this->campanha(['audio_mensagem_id' => $longo, 'tentativas_ura' => 3]);
+        $this->lead($id);
+
+        Livewire::test(Campanhas::class)
+            ->call('iniciar', $id)
+            ->assertSee('a chamada pode durar até');
+
+        $this->assertSame(0, (int) DB::table('campanha')->where('id', $id)->value('status'));
+    }
 }

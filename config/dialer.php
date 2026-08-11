@@ -38,6 +38,17 @@ return [
     // Evento de AMI se perde, e isso é operação normal ao longo de semanas.
     'limite_ligacao_seg' => (int) $ler('PROSPECTA_LIMITE_LIGACAO_SEG', '300'),
 
+    /*
+     * Timeout de toque: quanto deixamos chamando antes do NOSSO CANCEL. 25-30 s é a faixa
+     * recomendada, e o 487 medido nesta rota é o nosso próprio cancelamento — então este
+     * número define a ocupação de canal do não atendido, e é decisão nossa.
+     *
+     * Estava fixo dentro de `Fila::campanhasAtivas` e o painel precisa do MESMO valor para
+     * conferir a duração máxima contra `limite_ligacao_seg`. Dois lugares com o número
+     * teriam divergido no primeiro ajuste.
+     */
+    'timeout_toque_seg' => (int) $ler('PROSPECTA_TIMEOUT_TOQUE_SEG', '28'),
+
     // Teto de eventos consumidos por volta. Sem ele, um PBX movimentado
     // faria o dialer drenar para sempre e nunca originar.
     'eventos_por_volta' => (int) $ler('PROSPECTA_EVENTOS_POR_VOLTA', '200'),

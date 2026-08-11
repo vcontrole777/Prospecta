@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire;
 
 use App\Audio\Alaw;
+use App\Dominio\DuracaoMaxima;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
@@ -95,6 +96,11 @@ final class Campanhas extends Component
             $faltas[] = 'nome do template ausente — o opt-in não viraria mensagem';
         }
 
+        $longa = $this->faltaDeDuracao($id, $c, $ehCaptura);
+        if ($longa !== null) {
+            $faltas[] = $longa;
+        }
+
         if ($faltas !== []) {
             session()->flash('recusa', 'Não iniciei: ' . implode('; ', $faltas) . '.');
 
@@ -112,6 +118,134 @@ final class Campanhas extends Component
             ]);
 
         session()->flash('recado', 'Campanha no ar.');
+    }
+
+    /**
+     * 🔴 A CHAMADA CABE DENTRO DA JANELA DA RECONCILIAÇÃO?
+     *
+     * `Fila::reconciliar` encerra Ligação aberta há mais de `limite_ligacao_seg` e devolve
+     * o Lead à Fila, porque a única prova que ela tem de que o evento de AMI se perdeu é o
+     * tempo. Chamada VIVA que passa do limite é declarada morta, e então:
+     *
+     * · o canal é dado como livre e o dialer origina um a mais do que o contratado;
+     * · o Lead volta à Fila e é discado DE NOVO, para quem está na linha naquele instante;
+     * · a tentativa é gasta duas vezes pela mesma conversa.
+     *
+     * O `fastagi`, ao terminar, sobrescreve o desfecho — então o dado se conserta e a
+     * ligação duplicada não. Sem sintoma no banco, com sintoma para a pessoa.
+     *
+     * A conta é alcançável com valores que o próprio formulário aceita: cinco campos com
+     * duas tentativas, prompt de 20 s e espera de 20 s passam de 400 segundos. Não é caso
+     * adversarial — é uma Campanha de recadastramento comum.
+     *
+     * Recusar AQUI é onde o operador pode agir: ele vê quanto a chamada pode durar e o que
+     * mudar. Descobrir isso pelo comportamento seria descobrir por reclamação de cliente.
+     *
+     * @param  array<string,mixed>  $c
+     */
+    private function faltaDeDuracao(int $id, array $c, bool $ehCaptura): ?string
+    {
+        $limite = self::inteiro(config('dialer.limite_ligacao_seg')) ?: 300;
+        $toque = self::inteiro(config('dialer.timeout_toque_seg')) ?: 28;
+
+        $conta = new DuracaoMaxima();
+        $abertura = $this->duracaoDaAbertura();
+
+        if ($ehCaptura) {
+            $pior = $conta->captura($toque, $abertura, $this->camposParaConta($id));
+        } else {
+            $pior = $conta->optIn(
+                timeoutToqueSeg: $toque,
+                aberturaSeg: $abertura,
+                mensagemSeg: $this->duracaoDoAudio(self::inteiro($c['audio_mensagem_id'] ?? null)),
+                tentativasUra: max(1, self::inteiro($c['tentativas_ura'] ?? null)),
+                naoEntendiSeg: $this->duracaoDoAudio(self::inteiro($c['audio_nao_entendi_id'] ?? null)),
+                confirmacaoSeg: max(
+                    $this->duracaoDoAudio(self::inteiro($c['audio_confirma_opt_in_id'] ?? null)),
+                    $this->duracaoDoAudio(self::inteiro($c['audio_confirma_opt_out_id'] ?? null)),
+                ),
+            );
+        }
+
+        if ($pior <= $limite) {
+            return null;
+        }
+
+        return sprintf(
+            'a chamada pode durar até %d s e a reconciliação encerra em %d s — '
+            . 'ela discaria de novo para quem ainda está na linha. '
+            . 'Reduza %s, ou aumente PROSPECTA_LIMITE_LIGACAO_SEG',
+            $pior,
+            $limite,
+            $ehCaptura
+                ? 'os campos, as tentativas ou a espera de cada um'
+                : 'as tentativas na URA ou a duração do áudio',
+        );
+    }
+
+    /**
+     * @return list<array{tentativas:int, timeoutSeg:int, promptSeg:float}>
+     */
+    private function camposParaConta(int $campanhaId): array
+    {
+        $saida = [];
+
+        foreach (DB::select(
+            'SELECT cc.tentativas, cc.timeout_seg, a.duracao_seg
+               FROM campanha_campo cc
+               LEFT JOIN audio a ON a.id = cc.audio_prompt_id
+              WHERE cc.campanha_id = ?
+              ORDER BY cc.ordem, cc.id',
+            [$campanhaId],
+        ) as $linha) {
+            $cc = (array) $linha;
+            $saida[] = [
+                'tentativas' => max(1, self::inteiro($cc['tentativas'] ?? null)),
+                'timeoutSeg' => max(1, self::inteiro($cc['timeout_seg'] ?? null)),
+                'promptSeg' => (float) self::inteiro($cc['duracao_seg'] ?? null),
+            ];
+        }
+
+        return $saida;
+    }
+
+    /**
+     * Duração do áudio de abertura, DO DISCO.
+     *
+     * `Banco::carregar` passa `prospecta/abertura` fixo: a abertura não é escolhida por
+     * Campanha e não tem linha em `audio`. Então não há duração gravada para consultar —
+     * ela sai do tamanho do arquivo, que num `.alaw` é exato: 8000 bytes por segundo.
+     *
+     * Ausente, cai no limite que o `audios/README.md` impõe (~1 s). Assumir zero
+     * subestimaria a conta, e esta conta erra para cima de propósito.
+     */
+    private function duracaoDaAbertura(): float
+    {
+        $arquivo = self::texto(config('prospecta.audio_path')) . '/abertura.alaw';
+
+        if (! is_file($arquivo)) {
+            return self::ABERTURA_MAXIMA_SEG;
+        }
+
+        return (new Alaw())->duracaoSeg((int) filesize($arquivo));
+    }
+
+    /** O limite duro da abertura, do `audios/README.md`: "~1 s, não mais". */
+    private const ABERTURA_MAXIMA_SEG = 1.5;
+
+    /**
+     * Duração gravada do áudio, ou zero.
+     *
+     * Zero quando não há áudio é o certo para ESTA conta: áudio ausente não toca, então
+     * não consome tempo. A falta dele é recusada por outra guarda, com a causa dela.
+     */
+    private function duracaoDoAudio(int $audioId): float
+    {
+        if ($audioId === 0) {
+            return 0.0;
+        }
+
+        return (float) self::inteiro(DB::table('audio')->where('id', $audioId)->value('duracao_seg'));
     }
 
     /**

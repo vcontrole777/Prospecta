@@ -376,7 +376,7 @@ final class Fila
     }
 
     /** @return list<array{id:int,contratado:int,max_tentativas:int,bina:?string,bina_regra:string,timeout_toque:int}> */
-    public function campanhasAtivas(int $canaisContratados): array
+    public function campanhasAtivas(int $canaisContratados, int $timeoutToque = 28): array
     {
         $st = $this->pdo->query(
             'SELECT id, max_tentativas, bina, bina_regra, chamadas_simultaneas
@@ -398,10 +398,10 @@ final class Fila
                 'max_tentativas' => max(1, self::numero($c['max_tentativas'] ?? null)),
                 'bina' => self::texto($c['bina'] ?? null),
                 'bina_regra' => self::texto($c['bina_regra'] ?? null) ?? 'unica',
-                // Timeout de toque: 25-30 s é a faixa recomendada. Medido que o
-                // 487 é NOSSO CANCEL, então este número define a ocupação de
-                // canal do não atendido — e é decisão nossa, não da operadora.
-                'timeout_toque' => 28,
+                // Vem de `config/dialer.php`. Estava fixo aqui, e o painel precisa do
+                // mesmo valor para conferir a duração máxima da chamada contra
+                // `limite_ligacao_seg` — dois lugares com o número teriam divergido.
+                'timeout_toque' => $timeoutToque,
             ];
         }
 

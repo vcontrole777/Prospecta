@@ -306,7 +306,7 @@ while ($rodando) {
     }
 
     // ---- origina -----------------------------------------------------------
-    foreach ($fila->campanhasAtivas($conf['canais_contratados']) as $c) {
+    foreach ($fila->campanhasAtivas($conf['canais_contratados'], $conf['timeout_toque_seg']) as $c) {
         $campanhaId = $c['id'];
 
         // proteção
