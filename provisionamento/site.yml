@@ -611,6 +611,25 @@
           register: migracoes
           changed_when: "'Nothing to migrate' not in migracoes.stdout"
 
+        # 🔴 A ROTA DO BANCO VIRA ARQUIVO AQUI.
+        #
+        # O playbook deixou de gerar o endpoint e cria `pjsip-rota.conf` só como comentário.
+        # Sem este passo, reimplantar deixaria o Asterisk SEM ROTA até alguém abrir o painel
+        # e salvar de novo — mesmo com a Rota já gravada no banco.
+        #
+        # Como a conta da APLICAÇÃO, não como root: o `rename` deixa o arquivo com o dono de
+        # quem escreve, e é o grupo que faz o Asterisk conseguir ler. Rodar como root
+        # produziria `root:root` e o Asterisk perderia o endpoint em silêncio.
+        #
+        # Não falha quando não há Rota: instância nova legitimamente não tem, e falha
+        # rotineira ensina a ignorar falha.
+        - name: Aplicar a Rota gravada no painel
+          ansible.builtin.command:
+            chdir: "{{ app_dir }}"
+            cmd: "sudo -u {{ app_usuario }} php{{ php_versao }} artisan prospecta:rota-aplicar"
+          register: rota_aplicada
+          changed_when: "'recarregado' in rota_aplicada.stdout"
+
         # Cache de configuração, rota e view. Seguro aqui porque os processos de
         # chamada NÃO leem a configuração pelo framework: `config/dialer.php` e
         # `config/fastagi.php` são lidos direto, com getenv (ADR-0001).

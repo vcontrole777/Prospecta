@@ -68,6 +68,33 @@ final class RotaTest extends TestCase
         $this->assertStringContainsString('transport=transport-udp', $t->paraPjsip());
     }
 
+    /**
+     * 🔴 SEM USUÁRIO NÃO SAI BLOCO DE AUTENTICAÇÃO.
+     *
+     * Rota autenticada por IP não tem credencial. Um `[rota-auth]` com `username=` vazio é
+     * RECUSADO pelo Asterisk — medido nesta máquina:
+     *
+     *   res_pjsip/config_auth.c: rota-auth: No authentication username
+     *   res_sorcery_config.c: Could not create an object of type 'auth'
+     *
+     * A chamada continua saindo, porque o IP autoriza. Então o efeito não é falha: é erro a
+     * cada recarga e um `outbound_auth` apontando para objeto inexistente. Log cheio de erro
+     * rotineiro é log que ninguém lê, e o erro de verdade se perde no meio.
+     */
+    #[Test]
+    public function sem_usuario_nao_emite_bloco_de_autenticacao(): void
+    {
+        $conf = (new Rota(host: '200.1.2.3'))->paraPjsip();
+
+        $this->assertStringNotContainsString('type=auth', $conf);
+        $this->assertStringNotContainsString('outbound_auth', $conf);
+        $this->assertStringNotContainsString('username=', $conf);
+
+        // E o resto continua completo: o endpoint existe e o IP casa na entrada.
+        $this->assertStringContainsString('type=endpoint', $conf);
+        $this->assertStringContainsString('type=identify', $conf);
+    }
+
     #[Test]
     public function gera_as_quatro_secoes_que_o_asterisk_precisa(): void
     {
@@ -75,6 +102,7 @@ final class RotaTest extends TestCase
 
         $this->assertStringContainsString("type=endpoint", $conf);
         $this->assertStringContainsString("type=auth", $conf);
+        $this->assertStringContainsString('outbound_auth=rota-auth', $conf);
         $this->assertStringContainsString("type=aor", $conf);
         $this->assertStringContainsString("type=identify", $conf);
 

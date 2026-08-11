@@ -35,6 +35,8 @@ final class RotaTest extends TestCase
 
         $this->arquivo = sys_get_temp_dir() . '/prospecta-pjsip-rota-' . getmypid() . '.conf';
         file_put_contents($this->arquivo, "; vazio\n");
+        // 0660 como o provisionamento cria: o arquivo tem a senha da rota em claro.
+        chmod($this->arquivo, 0o660);
         config(['prospecta.pjsip_rota' => $this->arquivo]);
 
         // AMI numa porta que não escuta: o `aplicar` grava o arquivo e falha na recarga, o
@@ -215,9 +217,9 @@ final class RotaTest extends TestCase
         $this->assertSame('200.1.2.3', DB::table('configuracao')->where('id', 1)->value('rota_host'));
     }
 
-    /** O arquivo fica 0660: contém a senha em claro, e "outros" não pode ler. */
+    /** Escrever no lugar PRESERVA o modo — quem define 0660 é o provisionamento. */
     #[Test]
-    public function o_arquivo_de_pjsip_nao_fica_legivel_por_outros(): void
+    public function escrever_preserva_o_modo_do_arquivo(): void
     {
         Livewire::test(Rota::class)
             ->set('host', '200.1.2.3')
@@ -227,18 +229,80 @@ final class RotaTest extends TestCase
         clearstatcache(true, $this->arquivo);
         $modo = fileperms($this->arquivo) & 0o777;
 
-        $this->assertSame(0, $modo & 0o007, sprintf('modo %o dá permissão a "outros"', $modo));
+        $this->assertSame(0o660, $modo, sprintf('modo virou %o', $modo));
     }
 
-    /** Não deixa arquivo temporário para trás: `rename` é atômico e consome o `.novo`. */
+    /**
+     * 🔴 RECUSA GRAVAR SENHA EM ARQUIVO QUE "OUTROS" LEEM.
+     *
+     * O arquivo contém a senha da rota em claro — o pjsip não lê segredo cifrado, então a
+     * única proteção é o modo. Preservar um modo ruim gravaria a credencial num arquivo
+     * legível por qualquer usuário da máquina; um `chmod` silencioso esconderia que a
+     * instância esteve exposta. Recusar deixa o fato visível.
+     */
     #[Test]
-    public function nao_deixa_arquivo_temporario(): void
+    public function recusa_gravar_em_arquivo_legivel_por_outros(): void
+    {
+        chmod($this->arquivo, 0o644);
+        $antes = (string) file_get_contents($this->arquivo);
+
+        Livewire::test(Rota::class)
+            ->set('host', '200.1.2.3')
+            ->set('senha', 's3nh4')
+            ->call('salvar')
+            ->assertSee('legível por qualquer usuário');
+
+        $this->assertSame($antes, (string) file_get_contents($this->arquivo), 'nada foi gravado');
+    }
+
+    /**
+     * 🔴 O ARQUIVO ESCRITO MANTÉM O GRUPO DO QUE ELE SUBSTITUIU.
+     *
+     * `rename` substitui a linha do diretório, então o arquivo passa a ter o dono e o grupo
+     * do TEMPORÁRIO. Medido na instância: o painel roda como `prospecta`, e o arquivo virava
+     * `prospecta:prospecta` modo 0660 — que o `asterisk` não lê. A tela diria "Rota
+     * aplicada" e o Asterisk ficaria sem endpoint, com o sintoma parecendo falha de tronco.
+     */
+    #[Test]
+    public function o_arquivo_escrito_mantem_o_grupo_do_anterior(): void
+    {
+        // Um grupo diferente do primário de quem roda o teste, para a asserção ter conteúdo.
+        $grupo = posix_getgrnam('daemon') !== false ? 'daemon' : 'nogroup';
+        @chgrp($this->arquivo, $grupo);
+        clearstatcache(true, $this->arquivo);
+        $antes = filegroup($this->arquivo);
+
+        Livewire::test(Rota::class)
+            ->set('host', '200.1.2.3')
+            ->call('salvar');
+
+        clearstatcache(true, $this->arquivo);
+
+        $this->assertSame($antes, filegroup($this->arquivo), 'o Asterisk lê pelo grupo');
+        $this->assertStringContainsString('[rota]', (string) file_get_contents($this->arquivo));
+    }
+
+    /**
+     * Não cria arquivo no DIRETÓRIO, só escreve no arquivo.
+     *
+     * O painel tem permissão sobre o arquivo (0660), não sobre `/etc/asterisk`. Um
+     * temporário ao lado exigiria escrita na pasta — e isso deixaria o painel substituir
+     * `manager.conf` e `pjsip.conf`. Foi medido: como `prospecta`, criar o `.novo` devolveu
+     * "Permission denied".
+     */
+    #[Test]
+    public function nao_cria_arquivo_ao_lado(): void
     {
         Livewire::test(Rota::class)
             ->set('host', '200.1.2.3')
             ->call('salvar');
 
         $this->assertFileDoesNotExist($this->arquivo . '.novo');
+        $this->assertCount(
+            1,
+            glob(dirname($this->arquivo) . '/' . basename($this->arquivo) . '*') ?: [],
+            'só o próprio arquivo',
+        );
     }
 
     #[Test]

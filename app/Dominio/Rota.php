@@ -94,9 +94,25 @@ final class Rota
             context=prospecta-entrada
             transport=transport-udp
             aors={$n}
-            outbound_auth={$n}-auth
 
             CONF;
+
+        // 🔴 SEM USUÁRIO NÃO HÁ AUTENTICAÇÃO, e o bloco NÃO é emitido.
+        //
+        // Rota autenticada por IP — como a desta instância — não tem credencial. Emitir um
+        // `[nome-auth]` com `username=` vazio faz o Asterisk RECUSAR o objeto:
+        //
+        //   res_pjsip/config_auth.c: rota-auth: No authentication username
+        //   res_sorcery_config.c: Could not create an object of type 'auth'
+        //
+        // Medido nesta máquina. A chamada continua saindo, porque o IP autoriza — então o
+        // efeito não é falha, é um erro a cada recarga e um `outbound_auth` apontando para
+        // objeto inexistente. Log cheio de erro rotineiro é log que ninguém lê, e o dia em
+        // que houver um erro de verdade ele se perde no meio.
+        if (trim($this->usuario) !== '') {
+            $texto .= "outbound_auth={$n}-auth\n";
+        }
+
 
         // ⚠️ `from_user` SOBREPÕE o CALLERID(num) e torna TODA Regra de BINA inócua: o
         // painel mostra a BINA escolhida e a rota manda outra coisa, sem erro em log
@@ -129,12 +145,6 @@ final class Rota
             force_rport=yes
             rewrite_contact=yes
 
-            [{$n}-auth]
-            type=auth
-            auth_type=userpass
-            username={$this->usuario}
-            password={$this->senha}
-
             [{$n}]
             type=aor
             contact=sip:{$this->host}
@@ -153,6 +163,20 @@ final class Rota
             match={$this->host}
 
             CONF;
+
+        // O bloco de auth vem DEPOIS do endpoint, e só quando há usuário. A ordem no arquivo
+        // não importa para o pjsip — ele resolve as referências no fim da leitura.
+        if (trim($this->usuario) !== '') {
+            $texto .= <<<CONF
+
+                [{$n}-auth]
+                type=auth
+                auth_type=userpass
+                username={$this->usuario}
+                password={$this->senha}
+
+                CONF;
+        }
 
         return $texto;
     }

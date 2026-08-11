@@ -80,25 +80,68 @@ final class AplicaRota
             ];
         }
 
-        // Escrita ATÔMICA: arquivo temporário no MESMO diretório e depois `rename`. Um
-        // `file_put_contents` direto que morra no meio deixa o pjsip com metade de um
-        // endpoint, e aí o Asterisk recusa a recarga inteira e derruba a rota que estava
-        // funcionando. `rename` no mesmo sistema de arquivos é atômico.
-        $temporario = $this->arquivo . '.novo';
+        // 🔴 RECUSA GRAVAR SENHA EM ARQUIVO QUE "OUTROS" LEEM.
+        //
+        // Escrever no lugar preserva o modo — o que é certo, porque o modo é decisão do
+        // provisionamento (0660). Mas preservar um modo RUIM significaria gravar a senha da
+        // rota, em claro, num arquivo legível por qualquer usuário da máquina. O pjsip não lê
+        // segredo cifrado, então a única proteção que existe é o modo.
+        //
+        // Recusar é melhor que consertar por conta própria: um `chmod` daqui esconderia que a
+        // instância estava exposta, e o operador nunca saberia que ficou.
+        $modo = fileperms($this->arquivo);
 
-        if (file_put_contents($temporario, $rota->paraPjsip()) === false) {
-            return ['ok' => false, 'mensagem' => 'Não consegui escrever o arquivo temporário.'];
+        if ($modo !== false && ($modo & 0o004) !== 0) {
+            return [
+                'ok' => false,
+                'mensagem' => sprintf(
+                    'NÃO gravei: %s está legível por qualquer usuário da máquina (modo %o) e '
+                    . 'o arquivo contém a senha da rota em claro. Ajuste para 0660 com grupo '
+                    . 'do Asterisk e aplique de novo.',
+                    $this->arquivo,
+                    $modo & 0o777,
+                ),
+            ];
         }
 
-        // O `rename` preserva o dono e o modo do ARQUIVO NOVO, não do antigo — então o
-        // modo é reposto antes de trocar, senão o pjsip ficaria 0644 e a senha da rota
-        // legível por qualquer usuário da máquina.
-        @chmod($temporario, 0o660);
+        // 🔴 ESCRITA NO LUGAR, e não temporário + `rename`. A troca é deliberada.
+        //
+        // `rename` seria atômico, mas exige criar o temporário NO DIRETÓRIO — e isso exige
+        // permissão de escrita em `/etc/asterisk`. Medido: como `prospecta`, o
+        // `file_put_contents` do `.novo` devolveu "Permission denied", porque a permissão
+        // concedida é sobre o ARQUIVO (0660), não sobre a pasta.
+        //
+        // Dar escrita no diretório deixaria o painel substituir `manager.conf`, `pjsip.conf`
+        // e o resto — um caminho de escalada muito pior que o problema que o `rename`
+        // resolve. Então perde-se a atomicidade e mantém-se o privilégio mínimo.
+        //
+        // Efeito colateral bom: escrever no lugar PRESERVA dono e grupo, então o arquivo
+        // continua legível pelo Asterisk sem nenhum malabarismo de `chgrp`.
+        $conteudo = $rota->paraPjsip();
 
-        if (! rename($temporario, $this->arquivo)) {
-            @unlink($temporario);
+        if (file_put_contents($this->arquivo, $conteudo) === false) {
+            return ['ok' => false, 'mensagem' => sprintf('Não consegui escrever em %s.', $this->arquivo)];
+        }
 
-            return ['ok' => false, 'mensagem' => 'Não consegui substituir o arquivo de configuração.'];
+        // 🔴 RELÊ E COMPARA, que é o que substitui a atomicidade perdida.
+        //
+        // Sem `rename`, uma escrita interrompida — disco cheio, processo morto — deixa o
+        // arquivo pela metade: meio endpoint faz o Asterisk recusar a recarga INTEIRA e
+        // derruba a rota que estava funcionando. Comparar o que voltou com o que se quis
+        // gravar transforma isso em erro NOMEADO, em vez de uma recarga recusada cuja causa
+        // aparece só no log do Asterisk.
+        clearstatcache(true, $this->arquivo);
+
+        if (file_get_contents($this->arquivo) !== $conteudo) {
+            return [
+                'ok' => false,
+                'mensagem' => sprintf(
+                    'A escrita de %s saiu incompleta — o arquivo no disco não é o que gerei. '
+                    . 'NÃO recarreguei o Asterisk: metade de um endpoint derrubaria a rota '
+                    . 'atual. Confira espaço em disco e aplique de novo.',
+                    $this->arquivo,
+                ),
+            ];
         }
 
         return ['ok' => true, 'mensagem' => 'arquivo escrito'];
