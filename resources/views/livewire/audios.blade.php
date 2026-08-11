@@ -66,11 +66,17 @@
                             </td>
 
                             <td class="py-2.5 pr-4">
-                                @if (! $a['no_disco'])
-                                    {{-- Vermelho porque É falha: a linha existe e o
-                                         arquivo não. Toda Campanha que usa este áudio
-                                         sai muda, e o dialplan continua sem erro. --}}
+                                @if ($a['situacao'] === \App\Dominio\SituacaoDoArquivo::AUSENTE)
+                                    {{-- Vermelho porque É falha, e agora o vermelho é
+                                         confiável: a linha existe e o arquivo não. Toda
+                                         Campanha que usa este áudio sai muda, e o dialplan
+                                         continua sem erro. --}}
                                     <span class="text-error font-semibold">arquivo ausente</span>
+                                @elseif ($a['situacao'] === \App\Dominio\SituacaoDoArquivo::SEM_ACESSO)
+                                    {{-- Não é falha do áudio: é o painel sem travessia no
+                                         diretório. Acusar ausência aqui culparia o arquivo
+                                         por um problema de permissão nosso. --}}
+                                    <span class="text-warning" title="O painel não atravessa o diretório de áudios. O usuário do php-fpm precisa estar no grupo do diretório, e o serviço precisa ser reiniciado depois de entrar no grupo.">não consigo verificar</span>
                                 @elseif ($a['ativo'])
                                     <span class="text-primary">disponível</span>
                                 @else

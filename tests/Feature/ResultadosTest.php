@@ -284,7 +284,7 @@ final class ResultadosTest extends TestCase
     #[Test]
     public function sem_caminho_no_banco_nao_e_defeito(): void
     {
-        $this->assertSame('sem_gravacao', Resultados::situacaoDaGravacao(''));
+        $this->assertSame(\App\Dominio\SituacaoDoArquivo::SEM_CAMINHO, Resultados::situacaoDaGravacao(''));
     }
 
     /**
@@ -298,7 +298,7 @@ final class ResultadosTest extends TestCase
     public function diretorio_inexistente_conta_como_ausente(): void
     {
         $this->assertSame(
-            'ausente',
+            \App\Dominio\SituacaoDoArquivo::AUSENTE,
             Resultados::situacaoDaGravacao('/tmp/isto-nao-existe-mesmo-' . getmypid() . '/9.alaw'),
         );
     }

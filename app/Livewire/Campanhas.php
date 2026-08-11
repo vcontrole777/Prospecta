@@ -6,6 +6,7 @@ namespace App\Livewire;
 
 use App\Audio\Alaw;
 use App\Dominio\DuracaoMaxima;
+use App\Dominio\SituacaoDoArquivo;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
@@ -387,11 +388,7 @@ final class Campanhas extends Component
      */
     private function diretorioDeAudioAcessivel(string $diretorio): bool
     {
-        if ($diretorio === '' || ! is_dir($diretorio)) {
-            return true;
-        }
-
-        return is_readable($diretorio) && is_executable($diretorio);
+        return (new SituacaoDoArquivo())->diretorioAcessivel($diretorio);
     }
 
     /**

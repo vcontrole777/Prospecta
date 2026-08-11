@@ -6,6 +6,7 @@ namespace App\Livewire;
 
 use App\Audio\AudioRecusado;
 use App\Audio\Conversor;
+use App\Dominio\SituacaoDoArquivo;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
@@ -171,6 +172,8 @@ final class Audios extends Component
     {
         $saida = [];
 
+        $situacao = new SituacaoDoArquivo();
+
         foreach (DB::select(
             'SELECT a.id, a.nome, a.arquivo, a.duracao_seg, a.ativo,
                     (SELECT COUNT(*) FROM campanha c
@@ -195,7 +198,14 @@ final class Audios extends Component
                 // 🔴 O arquivo existe MESMO? A linha no banco não é prova. Sem esta
                 // coluna, um áudio removido do disco por fora apareceria como
                 // disponível e a Campanha sairia muda.
-                'no_disco' => $arquivo !== '' && is_file($caminho),
+                //
+                // TRÊS estados, não dois: `is_file() === false` também responde `false`
+                // quando o painel não atravessa o diretório — e os áudios são
+                // `root:asterisk` modo 0640. Dizer "arquivo ausente" em vermelho por
+                // cegueira acusaria falha onde há configuração, em TODA linha de uma vez,
+                // e ensinaria o operador a ignorar a linha vermelha que um dia estará
+                // certa. A regra vive em `SituacaoDoArquivo`, num lugar só.
+                'situacao' => $situacao->de($arquivo === '' ? '' : $caminho),
             ];
         }
 

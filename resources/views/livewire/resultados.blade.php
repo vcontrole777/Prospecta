@@ -200,11 +200,11 @@
                                      sei dizer. `is_file() === false` não prova ausência —
                                      prova que este processo não conseguiu ver. --}}
                                 @switch (\App\Livewire\Resultados::situacaoDaGravacao($gravacao))
-                                    @case ('sem_gravacao')
+                                    @case (\App\Dominio\SituacaoDoArquivo::SEM_CAMINHO)
                                         <span class="text-base-content/40">—</span>
                                         @break
 
-                                    @case ('existe')
+                                    @case (\App\Dominio\SituacaoDoArquivo::EXISTE)
                                         {{-- Sem player: alaw cru não tem cabeçalho e navegador
                                              nenhum toca. Servir exigiria empacotar em WAV numa
                                              rota nova, e um botão que não toca é pior que um
@@ -212,7 +212,7 @@
                                         <span class="identificador text-base-content/70">{{ basename($gravacao) }}</span>
                                         @break
 
-                                    @case ('sem_acesso')
+                                    @case (\App\Dominio\SituacaoDoArquivo::SEM_ACESSO)
                                         {{-- Não acusa o Asterisk de um problema que pode ser
                                              nosso: o painel roda como `prospecta`, e as
                                              gravações são `asterisk:asterisk` 2770. Grupo

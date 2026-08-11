@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire;
 
+use App\Dominio\SituacaoDoArquivo;
 use Illuminate\Contracts\View\View;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -370,55 +371,18 @@ final class Resultados extends Component
      */
     private function gravacaoAcessivel(): bool
     {
-        $dir = $this->diretorioDeGravacao();
-
-        if ($dir === '' || ! is_dir($dir)) {
-            return true;
-        }
-
-        return is_readable($dir) && is_executable($dir);
+        return (new SituacaoDoArquivo())->diretorioAcessivel($this->diretorioDeGravacao());
     }
 
     /**
-     * 🔴 `is_file() === false` NÃO PROVA QUE O ARQUIVO NÃO EXISTE.
+     * A situação da gravação, pela regra única de `SituacaoDoArquivo`.
      *
-     * Prova que este processo não consegue vê-lo. As duas causas são bem diferentes:
-     *
-     * · o arquivo não existe — o MixMonitor falhou, e é o defeito que esta coluna existe
-     *   para denunciar;
-     * · o php-fpm não atravessa o diretório. As gravações são `asterisk:asterisk` modo
-     *   2770 e o painel roda como `prospecta`, que precisa estar no grupo `asterisk`.
-     *   Grupo suplementar é fixado no `exec`: se a adesão foi concedida depois de o fpm
-     *   subir, os workers em execução não a têm até reiniciarem.
-     *
-     * Reportar as duas como "não está no disco" é acusar o Asterisk de um problema que
-     * pode ser nosso — e, pior, treina o operador a ignorar exatamente o aviso que um dia
-     * vai estar certo. Um alarme que mente é pior que alarme nenhum.
-     *
-     * Então a tela responde três coisas, não duas: existe, não existe, ou não sei dizer.
+     * Estático porque a view chama por linha, e instanciar por linha não paga nada aqui —
+     * a classe não guarda estado.
      */
     public static function situacaoDaGravacao(string $caminho): string
     {
-        if ($caminho === '') {
-            return 'sem_gravacao';
-        }
-
-        if (is_file($caminho)) {
-            return 'existe';
-        }
-
-        // A pergunta certa antes de acusar: eu conseguiria ver este arquivo se ele
-        // estivesse aí? Sem travessia no diretório, `is_file` responde `false` para
-        // arquivo presente — e a resposta honesta é que não há resposta.
-        //
-        // Diretório INEXISTENTE não entra aqui de propósito: ele é prova de que o arquivo
-        // não existe, não de cegueira. Só diretório que existe e não abre é indecidível.
-        $diretorio = \dirname($caminho);
-        if (is_dir($diretorio) && (! is_readable($diretorio) || ! is_executable($diretorio))) {
-            return 'sem_acesso';
-        }
-
-        return 'ausente';
+        return (new SituacaoDoArquivo())->de($caminho);
     }
 
     private static function texto(mixed $v): string
