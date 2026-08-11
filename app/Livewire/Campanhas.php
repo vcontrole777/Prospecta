@@ -319,8 +319,45 @@ final class Campanhas extends Component
         $diretorio = self::texto(config('prospecta.audio_path'));
         $caminho = $diretorio . '/' . $arquivo;
 
-        if ($arquivo === '' || ! is_file($caminho)) {
+        if ($arquivo === '') {
+            return sprintf('o áudio "%s" não tem arquivo no cadastro (AUDIO_MISSING)', $nome);
+        }
+
+        // 🔴 "NÃO CONSIGO LER" NÃO É "NÃO EXISTE", e aqui a diferença bloqueia o operador.
+        //
+        // Medido nesta máquina: os áudios são `root:asterisk` modo 0640 e o php-fpm roda
+        // como `prospecta`. Sem o grupo `asterisk` nos workers EM EXECUÇÃO — grupo
+        // suplementar é fixado no `exec`, então adesão concedida depois de o serviço subir
+        // não vale —, `is_file()` devolve false para arquivo presente.
+        //
+        // O efeito não era cosmético: esta função roda na ATIVAÇÃO, então toda Campanha era
+        // recusada com "o arquivo não está no disco", acusando ausência de um arquivo que
+        // estava lá. O operador não tinha como chegar na causa a partir dessa frase.
+        //
+        // A checagem do diretório vem PRIMEIRO porque ela explica o resto: sem travessia,
+        // nada que se afirme sobre os arquivos dentro dele vale.
+        if (! $this->diretorioDeAudioAcessivel($diretorio)) {
+            return sprintf(
+                'não consigo ler %s — o usuário do php-fpm precisa estar no grupo do '
+                . 'diretório de áudios, e o serviço precisa ser reiniciado depois de '
+                . 'entrar no grupo (AUDIO_SEM_ACESSO)',
+                $diretorio,
+            );
+        }
+
+        if (! is_file($caminho)) {
             return sprintf('o arquivo do áudio "%s" não está no disco (AUDIO_MISSING)', $nome);
+        }
+
+        // Arquivo presente e ilegível é caso próprio: o diretório abre, este arquivo não.
+        // O `Playback` do Asterisk roda como `asterisk` e talvez consiga — então isto é
+        // aviso sobre a nossa conferência, não prova de que a chamada sairia muda.
+        if (! is_readable($caminho)) {
+            return sprintf(
+                'o arquivo do áudio "%s" existe e não posso lê-lo, então não consigo '
+                . 'conferir o formato (AUDIO_SEM_ACESSO)',
+                $nome,
+            );
         }
 
         $bytes = (int) filesize($caminho);
@@ -338,6 +375,23 @@ final class Campanhas extends Component
         }
 
         return null;
+    }
+
+    /**
+     * O painel atravessa o diretório de áudios?
+     *
+     * Diretório INEXISTENTE responde `true` de propósito: aí o problema é outro — não há
+     * áudio nenhum instalado —, e a falta de cada arquivo é dita uma por uma, com a causa
+     * dela. Confundir "não instalado" com "sem permissão" mandaria o operador mexer em
+     * grupo de usuário quando o que falta é copiar arquivo.
+     */
+    private function diretorioDeAudioAcessivel(string $diretorio): bool
+    {
+        if ($diretorio === '' || ! is_dir($diretorio)) {
+            return true;
+        }
+
+        return is_readable($diretorio) && is_executable($diretorio);
     }
 
     /**

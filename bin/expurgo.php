@@ -138,11 +138,60 @@ foreach ($busca->fetchAll() as $linha) {
     $limpar->execute(['id' => $id]);
 }
 
+/*
+ * 🔴 CONTA OS ÓRFÃOS, E NÃO OS APAGA.
+ *
+ * Órfão é arquivo no disco sem nenhuma linha de `ligacao` apontando para ele. A ordem
+ * "apaga o arquivo, depois limpa a coluna" acima existe justamente para não CRIAR
+ * órfãos — mas ela não detecta os que já existem, e eles existem: perder as linhas de
+ * `ligacao` por qualquer motivo (banco recriado, restauração parcial) deixa a gravação no
+ * disco fora do alcance deste expurgo PARA SEMPRE. Aconteceu nesta instância: quatro
+ * gravações de chamadas reais ficaram sem linha.
+ *
+ * O efeito é acumulação silenciosa, e num produto de uma VPS por cliente o que enche é o
+ * disco — que é também onde o Asterisk grava. Ninguém percebe até parar.
+ *
+ * NÃO APAGA, e a recusa é deliberada. Um expurgo que apaga o que não está no banco é uma
+ * arma apontada para os dados: banco momentaneamente vazio — recriado, restaurando,
+ * migrando — faria esta varredura apagar TODAS as gravações da instância numa passada, sem
+ * volta. O ganho de apagar automaticamente é espaço; o risco é perda total. Contar dá ao
+ * operador o número e a decisão.
+ */
+$orfaos = 0;
+$bytesOrfaos = 0;
+
+$conhecidos = [];
+foreach ($pdo->query('SELECT gravacao FROM ligacao WHERE gravacao IS NOT NULL') as $linha) {
+    if (is_array($linha) && is_string($linha['gravacao'] ?? null)) {
+        $conhecidos[$linha['gravacao']] = true;
+    }
+}
+
+// `glob` sobre o diretório de gravação, não recursivo: é onde o MixMonitor escreve, e o
+// caminho é montado por nós a partir de um inteiro (ADR-0003).
+foreach (glob($base . '/*') ?: [] as $arquivo) {
+    if (! is_file($arquivo) || isset($conhecidos[$arquivo])) {
+        continue;
+    }
+
+    $orfaos++;
+    $bytesOrfaos += (int) filesize($arquivo);
+}
+
+if ($orfaos > 0) {
+    $log->linha('orfaos', 'gravações no disco sem linha de Ligação — este expurgo NÃO as apaga', [
+        'quantas' => $orfaos,
+        'megabytes' => round($bytesOrfaos / 1048576, 1),
+        'diretorio' => $base,
+    ]);
+}
+
 $log->linha('fim', 'expurgo concluído', [
     'retencao_dias' => $dias,
     'apagados' => $apagados,
     'ja_ausentes' => $ausentes,
     'recusados' => $recusados,
+    'orfaos' => $orfaos,
 ]);
 
 exit($recusados > 0 ? 1 : 0);

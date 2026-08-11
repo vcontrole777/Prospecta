@@ -271,4 +271,60 @@ final class IniciarCampanhaTest extends TestCase
 
         $this->assertSame(0, (int) DB::table('campanha')->where('id', $id)->value('status'));
     }
+
+    /**
+     * 🔴 "NÃO CONSIGO LER" NÃO É "NÃO EXISTE" — e aqui a confusão BLOQUEIA o operador.
+     *
+     * Medido nesta máquina: os áudios são `root:asterisk` modo 0640 e o php-fpm roda como
+     * `prospecta`. Sem o grupo `asterisk` nos workers em execução, `is_file()` devolve
+     * false para arquivo presente, e a ativação era recusada com "o arquivo não está no
+     * disco" — acusando ausência de arquivo que estava lá, numa frase da qual o operador
+     * não tem como chegar à causa.
+     *
+     * Pulado como root, que dispensa a conferência de modo, com a causa dita.
+     */
+    #[Test]
+    public function diretorio_de_audio_fechado_nao_e_relatado_como_arquivo_ausente(): void
+    {
+        if (\function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $this->markTestSkipped('root ignora modo de arquivo: is_readable responde true para 0000');
+        }
+
+        $id = $this->campanha(['audio_mensagem_id' => $this->audio]);
+        $this->lead($id);
+
+        $dir = $this->diretorioDeAudio();
+        chmod($dir, 0o000);
+
+        try {
+            Livewire::test(Campanhas::class)
+                ->call('iniciar', $id)
+                ->assertSee('AUDIO_SEM_ACESSO')
+                ->assertDontSee('não está no disco');
+        } finally {
+            chmod($dir, 0o755);
+        }
+
+        $this->assertSame(0, (int) DB::table('campanha')->where('id', $id)->value('status'));
+    }
+
+    /**
+     * Diretório inexistente segue sendo relatado como arquivo ausente, não como permissão.
+     *
+     * Instância sem áudio instalado tem um problema — copiar arquivo — e mandar o operador
+     * mexer em grupo de usuário o afastaria dele.
+     */
+    #[Test]
+    public function diretorio_de_audio_inexistente_ainda_acusa_arquivo_ausente(): void
+    {
+        $id = $this->campanha(['audio_mensagem_id' => $this->audio]);
+        $this->lead($id);
+
+        config(['prospecta.audio_path' => '/tmp/prospecta-audio-inexistente-' . getmypid()]);
+
+        Livewire::test(Campanhas::class)
+            ->call('iniciar', $id)
+            ->assertSee('não está no disco')
+            ->assertDontSee('AUDIO_SEM_ACESSO');
+    }
 }
