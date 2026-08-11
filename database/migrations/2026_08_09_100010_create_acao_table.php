@@ -16,6 +16,12 @@ return new class extends Migration
 
             // NÃO existe notificação ao dono: o resultado da captura é
             // acompanhado no painel, não entregue por mensagem.
+            // 🔴 SÓ `disparo` É ESCRITO HOJE. Os outros cinco são intenção registrada,
+            // não caminho existente — nada os grava e nada os consome. O enum fica largo
+            // porque estreitá-lo custaria uma migration agora e outra quando a integração
+            // de saída chegar; mas quem lê esta lista não deve concluir que esses tipos
+            // circulam. `evento_captura_concluida` chegou a ser escrito e ficava
+            // `pendente` para sempre, porque `FilaDeAcoes` só reivindica `disparo`.
             $t->enum('tipo', [
                 'disparo', 'consulta_cpf', 'evento_opt_in', 'evento_opt_out',
                 'evento_ligacao_encerrada', 'evento_captura_concluida',

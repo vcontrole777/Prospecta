@@ -89,8 +89,8 @@ final class Campanhas extends Component
             }
         }
 
-        // Só opt-in gera Ação de disparo; captura gera `evento_captura_concluida`, que
-        // não passa por template.
+        // Só opt-in gera Ação de disparo. Captura não gera Ação nenhuma: o dado fica em
+        // `ligacao.respostas`, e o caminho de leitura é a tela de Resultados.
         if (! $ehCaptura && ($c['canal_opt_in'] ?? null) === 'whatsapp' && ($c['template_nome'] ?? null) === null) {
             $faltas[] = 'nome do template ausente — o opt-in não viraria mensagem';
         }

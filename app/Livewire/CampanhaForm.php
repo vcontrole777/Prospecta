@@ -431,7 +431,7 @@ final class CampanhaForm extends Component
             // `campanha_sem_template_ou_lead_sem_telefone`. Exigir aqui troca falha
             // silenciosa no envio por campo vermelho no cadastro.
             //
-            // Captura gera `evento_captura_concluida`, que NÃO passa por template. Exigir
+            // Captura não gera Ação nenhuma — nem de disparo, nem de evento. Exigir
             // ali recusaria uma Campanha de captura perfeitamente configurada — e foi o
             // que aconteceu: oito testes de captura quebraram pedindo um template que a
             // captura não usa.

@@ -262,18 +262,26 @@ final class Banco
                 SQL)->execute(['id' => $ligacaoId]);
             }
 
-            // Captura concluída gera Ação de consulta, processada pelo worker
-            // FORA da Ligação (ADR-0002).
-            if (in_array($r->desfecho, ['captura_concluida', 'captura_parcial'], true) && $r->respostas !== []) {
-                $pdo->prepare(<<<'SQL'
-                    INSERT INTO acao (tipo, referencia_id, payload, status, criado_em)
-                    VALUES ('evento_captura_concluida', :ref, :payload, 'pendente', NOW())
-                    ON DUPLICATE KEY UPDATE id = id
-                SQL)->execute([
-                    'ref' => $ligacaoId,
-                    'payload' => json_encode($r->respostas, JSON_UNESCAPED_UNICODE),
-                ]);
-            }
+            // 🔴 A CAPTURA NÃO GRAVA AÇÃO NENHUMA, e a ausência é deliberada.
+            //
+            // Aqui havia um `INSERT INTO acao ('evento_captura_concluida', ...)` com o
+            // comentário "processada pelo worker FORA da Ligação". O worker NÃO a
+            // processa: `FilaDeAcoes::reivindicar` só reivindica `tipo = 'disparo'`, e
+            // `marcarEsgotadas` também só alcança `disparo` — então a linha não era
+            // consumida e nem sequer chegava a falhar. Ficava `pendente` para sempre, uma
+            // por captura concluída, formando uma fila que nunca drena.
+            //
+            // E não havia nada perdido em não gravá-la: as respostas já estão em
+            // `ligacao.respostas`, na mesma transação, e o `payload` era cópia delas. O
+            // caminho de leitura do dado capturado é a tela de Resultados e a exportação
+            // em CSV.
+            //
+            // Entregar a captura ao sistema do cliente é uma integração de SAÍDA que não
+            // existe: não há destino cadastrável — `integracao.tipo` tem `automacao` sem
+            // nenhum provedor definido — nem assinatura, nem retentativa. Quando existir,
+            // o lugar é aqui, e `UNIQUE(tipo, referencia_id)` já dá a idempotência. Até
+            // então, enfileirar para um consumidor inexistente é pior que não enfileirar:
+            // faz a fila parecer travada e promete uma entrega que não acontece.
 
             $pdo->commit();
         } catch (\Throwable $e) {
