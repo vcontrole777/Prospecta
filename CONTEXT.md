@@ -107,6 +107,12 @@ substituí-la e não temos como saber.
 _Avoid_: BINA inteligente (bom nome de recurso, nome ruim de coluna), rotação de callerid,
 e **"fixa"** para dizer "não muda" — em telefonia "fixo" é telefone fixo, por isso `unica`
 
-**Tronco SIP**:
-O caminho pelo qual as Ligações saem para a operadora.
-_Avoid_: gateway, peer, rota
+**Rota**:
+O caminho pelo qual as Ligações saem para a operadora: host, credencial, `from_domain` e
+prefixo técnico. Há UMA por instância, configurada no painel — decisão do operador em
+11/08/2026, que também escolheu a palavra.
+O **prefixo técnico** é parte dela e é seleção de CAPACIDADE, não de roteamento: medido que
+fora da rota Platinum da IDT o CallerID e o DTMF falham em silêncio, e o produto inteiro é
+"escute e digite uma tecla". Trocar o prefixo é trocar de rota comercial.
+_Avoid_: **Tronco SIP** (era o termo até 11/08/2026; trocado para casar com a tela, porque
+duas palavras para a mesma coisa é como o vocabulário se parte), gateway, peer, trunk

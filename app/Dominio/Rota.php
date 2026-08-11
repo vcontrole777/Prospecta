@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace App\Dominio;
 
 /**
- * O Tronco SIP de saída, e o texto de configuração que o Asterisk lê. PURA.
+ * A Rota de saída, e o texto de configuração que o Asterisk lê. PURA.
  *
- * 🔴 O TRONCO MORAVA EM TRÊS LUGARES, e é isso que esta classe existe para acabar.
+ * 🔴 A ROTA MORAVA EM TRÊS LUGARES, e é isso que esta classe existe para acabar.
  *
  * · `/etc/asterisk/pjsip.conf`, gerado pelo Ansible a partir de `host_vars`;
  * · `.env`, em `PROSPECTA_TRONCO` e `PROSPECTA_TECH_PREFIX`, que o dialer lê na partida
  *   para montar `PJSIP/{prefixo}{numero}@{nome}`;
- * · `configuracao.tronco_*`, seis colunas que ninguém lia.
+ * · `configuracao.rota_*` (eram `tronco_*`), seis colunas que ninguém lia.
  *
  * Três fontes para o mesmo fato divergem — este repositório já pagou por isso com a
  * retenção da gravação (duas fontes, defaults diferentes, o painel mostrando 15 e o
@@ -24,7 +24,7 @@ namespace App\Dominio;
  * rota barata, CallerID e DTMF falham em SILÊNCIO — e o produto inteiro é "escute e digite
  * uma tecla". Discar pelo prefixo errado não dá erro; dá Campanha inteira sem resposta.
  */
-final class Tronco
+final class Rota
 {
     /**
      * O nome do endpoint é FIXO.
@@ -34,7 +34,7 @@ final class Tronco
      * salvar e recarregar sairia discando para um endpoint que não existe. O que muda de
      * fornecedor para fornecedor é host, credencial e prefixo — não o apelido interno.
      */
-    public const NOME = 'tronco';
+    public const NOME = 'rota';
 
     public function __construct(
         public readonly string $host = '',
@@ -46,7 +46,7 @@ final class Tronco
     ) {
     }
 
-    /** Sem host não há para onde discar; é o mínimo que torna o Tronco utilizável. */
+    /** Sem host não há para onde discar; é o mínimo que torna a Rota utilizável. */
     public function configurado(): bool
     {
         return trim($this->host) !== '';
@@ -64,9 +64,9 @@ final class Tronco
     }
 
     /**
-     * O trecho de `pjsip.conf` deste Tronco.
+     * O trecho de `pjsip.conf` desta Rota.
      *
-     * 🔴 NÃO inclui `[transport-udp]`. O transporte é da máquina, não do Tronco, e vive no
+     * 🔴 NÃO inclui `[transport-udp]`. O transporte é da máquina, não da Rota, e vive no
      * arquivo que o Ansible gera. Duplicá-lo aqui faria o Asterisk ver duas seções com o
      * mesmo nome a cada recarga.
      *
@@ -78,7 +78,7 @@ final class Tronco
     public function paraPjsip(): string
     {
         if (! $this->configurado()) {
-            return "; Tronco não configurado no painel. Nenhum endpoint definido.\n";
+            return "; Rota não configurada no painel. Nenhum endpoint definido.\n";
         }
 
         $n = self::NOME;
@@ -86,7 +86,7 @@ final class Tronco
         $texto = <<<CONF
             ; ------------------------------------------------------------------
             ; GERADO PELO PAINEL. Não edite aqui: a próxima gravação sobrescreve.
-            ; A fonte é `configuracao.tronco_*`, e a senha fica cifrada no banco.
+            ; A fonte é `configuracao.rota_*`, e a senha fica cifrada no banco.
             ; ------------------------------------------------------------------
 
             [{$n}]
@@ -112,7 +112,7 @@ final class Tronco
 
         $texto .= <<<CONF
 
-            ; alaw/ulaw: os áudios são alaw, e casar com o tronco elimina transcodificação
+            ; alaw/ulaw: os áudios são alaw, e casar com a rota elimina transcodificação
             ; na reprodução, deixando DSP só para o AMD e o MixMonitor.
             disallow=all
             allow=alaw,ulaw

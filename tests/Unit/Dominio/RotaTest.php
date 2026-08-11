@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Dominio;
 
-use App\Dominio\Tronco;
+use App\Dominio\Rota;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
-final class TroncoTest extends TestCase
+final class RotaTest extends TestCase
 {
     /**
      * 🔴 O PREFIXO TÉCNICO ENTRA NO CANAL, colado no número.
@@ -20,17 +20,17 @@ final class TroncoTest extends TestCase
     #[Test]
     public function o_canal_junta_prefixo_numero_e_nome_do_endpoint(): void
     {
-        $t = new Tronco(host: '200.1.2.3', techPrefix: '99901');
+        $t = new Rota(host: '200.1.2.3', techPrefix: '99901');
 
-        $this->assertSame('PJSIP/999015511987654321@tronco', $t->canal('PJSIP', '5511987654321'));
+        $this->assertSame('PJSIP/999015511987654321@rota', $t->canal('PJSIP', '5511987654321'));
     }
 
     #[Test]
     public function sem_prefixo_o_canal_leva_so_o_numero(): void
     {
-        $t = new Tronco(host: '200.1.2.3');
+        $t = new Rota(host: '200.1.2.3');
 
-        $this->assertSame('PJSIP/5511987654321@tronco', $t->canal('PJSIP', '5511987654321'));
+        $this->assertSame('PJSIP/5511987654321@rota', $t->canal('PJSIP', '5511987654321'));
     }
 
     /**
@@ -46,8 +46,8 @@ final class TroncoTest extends TestCase
     #[Test]
     public function from_user_fica_de_fora_quando_vazio(): void
     {
-        $semele = new Tronco(host: '200.1.2.3', usuario: 'u', senha: 's');
-        $comele = new Tronco(host: '200.1.2.3', usuario: 'u', senha: 's', fromUsuario: '551133334444');
+        $semele = new Rota(host: '200.1.2.3', usuario: 'u', senha: 's');
+        $comele = new Rota(host: '200.1.2.3', usuario: 'u', senha: 's', fromUsuario: '551133334444');
 
         $this->assertStringNotContainsString('from_user', $semele->paraPjsip());
         $this->assertStringContainsString('from_user=551133334444', $comele->paraPjsip());
@@ -56,13 +56,13 @@ final class TroncoTest extends TestCase
     /**
      * O transporte NÃO é gerado aqui.
      *
-     * `[transport-udp]` é da máquina, não do Tronco, e vive no arquivo do Ansible.
+     * `[transport-udp]` é da máquina, não da Rota, e vive no arquivo do Ansible.
      * Duplicá-lo faria o Asterisk ver duas seções de mesmo nome a cada recarga.
      */
     #[Test]
     public function nao_gera_o_transporte(): void
     {
-        $t = new Tronco(host: '200.1.2.3');
+        $t = new Rota(host: '200.1.2.3');
 
         $this->assertStringNotContainsString('[transport-udp]', $t->paraPjsip());
         $this->assertStringContainsString('transport=transport-udp', $t->paraPjsip());
@@ -71,7 +71,7 @@ final class TroncoTest extends TestCase
     #[Test]
     public function gera_as_quatro_secoes_que_o_asterisk_precisa(): void
     {
-        $conf = (new Tronco('200.1.2.3', 'usr', 's3nh4', 'sip.forn.com'))->paraPjsip();
+        $conf = (new Rota('200.1.2.3', 'usr', 's3nh4', 'sip.forn.com'))->paraPjsip();
 
         $this->assertStringContainsString("type=endpoint", $conf);
         $this->assertStringContainsString("type=auth", $conf);
@@ -93,7 +93,7 @@ final class TroncoTest extends TestCase
     #[Test]
     public function mantem_o_que_o_produto_exige_do_tronco(): void
     {
-        $conf = (new Tronco(host: '200.1.2.3'))->paraPjsip();
+        $conf = (new Rota(host: '200.1.2.3'))->paraPjsip();
 
         $this->assertStringContainsString('allow=alaw,ulaw', $conf);
         $this->assertStringContainsString('dtmf_mode=rfc4733', $conf);
@@ -110,17 +110,17 @@ final class TroncoTest extends TestCase
     #[Test]
     public function sem_host_nao_gera_endpoint_nenhum(): void
     {
-        $t = new Tronco();
+        $t = new Rota();
 
         $this->assertFalse($t->configurado());
         $this->assertStringNotContainsString('type=endpoint', $t->paraPjsip());
-        $this->assertStringContainsString('não configurado', $t->paraPjsip());
+        $this->assertStringContainsString('não configurada', $t->paraPjsip());
     }
 
     #[Test]
     public function host_em_branco_nao_conta_como_configurado(): void
     {
-        $this->assertFalse((new Tronco(host: '   '))->configurado());
-        $this->assertTrue((new Tronco(host: '200.1.2.3'))->configurado());
+        $this->assertFalse((new Rota(host: '   '))->configurado());
+        $this->assertTrue((new Rota(host: '200.1.2.3'))->configurado());
     }
 }

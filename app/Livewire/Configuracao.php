@@ -18,10 +18,14 @@ use Livewire\Component;
  * campo em tela que nenhum processo consome é promessa falsa. O operador preenche,
  * confere, e nada acontece.
  *
- * A tabela tem colunas que HOJE são órfãs — `tronco_ip` e as outras do tronco,
- * `classificador_pre_ativo`, `audio_amd_id`, `audio_espera_id`,
- * `audio_mensagem_generica_id`. Ficam fora, e a tela nomeia a ausência em vez de
- * oferecer um campo morto.
+ * A tabela tem colunas que esta tela deliberadamente NÃO mostra:
+ *
+ * · as `rota_*` têm tela própria (`App\Livewire\Rota`), porque o caminho de saída é
+ *   assunto seu e mexer nele recarrega o Asterisk — efeito que não cabe junto de horário
+ *   de trabalho e retenção de gravação;
+ * · `classificador_pre_ativo`, `audio_amd_id`, `audio_espera_id` e
+ *   `audio_mensagem_generica_id` seguem ÓRFÃS: nenhum processo as lê. Ficam fora, e a tela
+ *   nomeia a ausência em vez de oferecer um campo morto.
  */
 final class Configuracao extends Component
 {
