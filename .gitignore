@@ -42,3 +42,16 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# 🔴 Áudio NUNCA entra no repositório.
+#
+# `abertura.alaw` é gravação de voz real — a pessoa que gravou não consentiu com
+# publicação, e um repositório é distribuição. Os áudios de sistema vivem no destino
+# (`/var/lib/asterisk/sounds/prospecta`) e o playbook os copia de `audios/`, que é uma
+# área de trabalho local, não fonte versionada.
+#
+# Consequência conhecida e aceita: instância NOVA não recebe os áudios pelo playbook —
+# quem provisiona precisa levá-los. Ver audios/README.md.
+audios/*.alaw
+audios/*.wav
+audios/*.gsm

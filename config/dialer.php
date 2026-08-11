@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /** Configuração do `dialer`. Sem env() do framework — bootstrap mínimo. */
 
-$ler = (require __DIR__ . '/ambiente.php')(dirname(__DIR__));
+$ler = (require dirname(__DIR__) . '/bootstrap/ambiente.php')(dirname(__DIR__));
 
 return [
     'banco' => [

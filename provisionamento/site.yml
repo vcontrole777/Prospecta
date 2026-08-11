@@ -158,16 +158,38 @@
       tags: [asterisk]
       block:
 
+        # 🔴 SÓ BAIXA E INSTALA SE A VERSÃO NÃO ESTIVER LÁ.
+        #
+        # Sem esta guarda, TODA reprovisionamento de uma instância que já tem o Asterisk
+        # morre no `get_url` — e morre por uma tarefa que não tinha nada a fazer. Numa
+        # instalação nova o artefato é obrigatório e a falha é legítima; numa que já roda,
+        # ela impede de aplicar qualquer correção no resto do playbook.
+        #
+        # Medido nesta máquina: `asterisk_url_artefato` ainda é o marcador
+        # `https://ARTEFATOS.EXEMPLO/...`, e o Asterisk 22.10.1 está instalado e no ar. O
+        # playbook não conseguia atualizar a aplicação por causa de um download que não
+        # precisava acontecer.
+        #
+        # `failed_when: false` no comando: `asterisk -V` não existe antes da primeira
+        # instalação, e a ausência é resposta, não erro.
+        - name: Versão do Asterisk já instalada
+          ansible.builtin.command: asterisk -V
+          register: asterisk_instalado
+          changed_when: false
+          failed_when: false
+
         - name: Baixar o pacote do Asterisk
           ansible.builtin.get_url:
             url: "{{ asterisk_url_artefato }}"
             dest: "/tmp/asterisk_{{ asterisk_versao }}_amd64.deb"
             mode: "0644"
+          when: asterisk_versao not in (asterisk_instalado.stdout | default(''))
 
         - name: Instalar o Asterisk
           ansible.builtin.apt:
             deb: "/tmp/asterisk_{{ asterisk_versao }}_amd64.deb"
             state: present
+          when: asterisk_versao not in (asterisk_instalado.stdout | default(''))
 
         # VERIFICADO POR FALHA: o logger.conf que vem de `make samples` NÃO
         # registra `verbose`, e é aí que o traço de `pjsip set logger`
@@ -367,6 +389,17 @@
         # `tar` e `unarchive` porque só há ansible.builtin nesta instalação: nem
         # community.general nem ansible.posix estão presentes, então `synchronize`
         # não é opção.
+        # 🔴 CACHE NÃO VIAJA NO ARTEFATO.
+        #
+        # `bootstrap/cache` é estado da instância, e o desta máquina contém
+        # `packages.php`/`services.php` gerados aqui. Pior: um `config:cache` rodado no
+        # desenvolvimento deixaria um `config.php` com o `.env` DAQUI, que sobreporia a
+        # configuração da instância — banco, senha e tudo. Nunca aconteceu; a exclusão é
+        # para que continue assim.
+        #
+        # Comentário AQUI e não entre os argumentos: cada linha daquela lista vira um
+        # argumento do `tar`, e um `#` lá dentro faz o tar tentar arquivar um arquivo
+        # chamado `#`. Custou uma execução.
         - name: Montar o artefato da aplicação
           delegate_to: localhost
           become: false
@@ -381,6 +414,7 @@
               --exclude=./.env
               --exclude=./tests
               --exclude=./provisionamento
+              --exclude=./bootstrap/cache
               --exclude=./storage/logs
               --exclude=./storage/framework/cache
               --exclude=./storage/framework/sessions
@@ -407,12 +441,40 @@
         # removido do repositório permanece na VPS. Para o v1 é aceitável porque
         # nada no produto varre diretório em busca de código. Se isso mudar, este
         # passo precisa apagar antes de extrair.
+        # 🔴 APAGA O CÓDIGO ANTIGO ANTES DE EXTRAIR.
+        #
+        # O comentário acima dizia que sobrepor bastava, "porque nada no produto varre
+        # diretório em busca de código — se isso mudar, este passo precisa apagar antes de
+        # extrair". Mudou, e sempre foi assim: o LARAVEL varre `config/` e carrega TODO
+        # arquivo de lá como configuração.
+        #
+        # Custou um deploy: `config/ambiente.php` foi movido para `bootstrap/` no
+        # repositório porque devolve uma closure e quebrava o `config:cache`. A cópia velha
+        # continuou em `/opt/prospecta/config/`, e o deploy seguiu falhando pelo arquivo que
+        # já não existia na origem — sintoma idêntico ao defeito já corrigido, o que é o
+        # pior tipo de pista falsa.
+        #
+        # Só diretórios que o artefato substitui INTEIROS. Ficam de fora, e cada um por um
+        # motivo: `storage/` e `bootstrap/cache` são estado; `vendor/` é reconstruído pelo
+        # composer logo abaixo e apagá-lo custaria minutos a cada deploy; `.env` é
+        # configuração da instância e é escrito por outra tarefa.
+        #
+        # O artefato JÁ FOI MONTADO quando isto roda — a tarefa anterior é "Montar o
+        # artefato". Então não há janela em que o código esteja apagado e não haja o que
+        # extrair.
+        - name: Limpar o código anterior
+          ansible.builtin.file:
+            path: "{{ app_dir }}/{{ item }}"
+            state: absent
+          loop: [app, bootstrap, config, database, public, resources, routes, bin]
+
         - name: Enviar e extrair o código
           ansible.builtin.unarchive:
             src: "{{ artefato_local }}"
             dest: "{{ app_dir }}"
             owner: "{{ app_usuario }}"
             group: "{{ app_usuario }}"
+          notify: Reiniciar o dialer e o worker
 
         # 🔴 ANTES do composer, e a ordem é o conserto de uma falha real.
         #
@@ -497,6 +559,12 @@
             group: "{{ app_usuario }}"
             mode: "0640"
           no_log: true   # o arquivo tem senha de banco e segredo do AMI
+          notify:
+            # Os dois leem o ambiente na PARTIDA, via `bootstrap/ambiente.php`. Trocar o
+            # `.env` sem reiniciar deixa os processos com a configuração anterior — e o
+            # sintoma seria discar com o tronco velho depois de trocar de fornecedor.
+            - Reiniciar o dialer e o worker
+            - Reiniciar o php-fpm
 
         # O composer roda como root, então `vendor/` nasce de root. Sem isto o
         # `artisan optimize` não escreveria o cache e o painel falharia na primeira
@@ -706,6 +774,28 @@
       ansible.builtin.command:
         cmd: asterisk -rx "module reload res_rtp_asterisk.so"
       changed_when: true
+
+    # 🔴 O DIALER E O WORKER SÓ PEGAM CÓDIGO NOVO REINICIANDO.
+    #
+    # São laços de longa duração: o PHP carrega o código na PARTIDA, então trocar o
+    # arquivo no disco não muda o processo em memória. O `fastagi` não precisa disto — o
+    # socket é `Accept=yes` e a unidade é `oneshot`, um processo por chamada, que já sobe
+    # com o código do momento.
+    #
+    # Sem este handler, implantar não implantava: os arquivos chegavam e os dois processos
+    # seguiam com a versão anterior indefinidamente. Encontrado conferindo o
+    # `ActiveEnterTimestamp` depois de um deploy dado como bem-sucedido — o relatório do
+    # Ansible dizia `failed=0` e o dialer estava com o código do dia anterior.
+    #
+    # Reiniciar DERRUBA chamada em curso. É o preço, e é o mesmo de qualquer implantação;
+    # o momento barato é com a Campanha pausada.
+    - name: Reiniciar o dialer e o worker
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - prospecta-dialer.service
+        - prospecta-worker.service
 
     - name: Reiniciar o php-fpm
       ansible.builtin.systemd:

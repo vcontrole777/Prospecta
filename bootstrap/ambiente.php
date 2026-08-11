@@ -22,6 +22,18 @@ declare(strict_types=1);
  * numa bateria de teste sem editar o `.env` da instância — e é a ordem que o
  * `Environment=` das unidades do systemd pressupõe.
  *
+ * 🔴 FORA DE `config/`, E É REQUISITO DO FRAMEWORK.
+ *
+ * Este arquivo devolve uma CLOSURE. O Laravel carrega todo `config/*.php` como
+ * configuração, e `artisan config:cache` serializa a configuração inteira com
+ * `var_export` — closure não sobrevive a isso. Com ele em `config/`, o deploy morria em
+ * "Your configuration files could not be serialized because the value at 'ambiente' is
+ * non-serializable", e sem o cache o painel falha na primeira requisição.
+ *
+ * Encontrado IMPLANTANDO, não testando: a suíte nunca roda `config:cache`. Foi acrescentado
+ * um teste que confere que nenhuma configuração devolve valor não serializável — ver
+ * `ConfiguracaoSerializavelTest`.
+ *
  * @return callable(string, string|null): string
  */
 return static function (string $raiz): callable {
