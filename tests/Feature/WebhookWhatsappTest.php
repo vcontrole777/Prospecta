@@ -32,7 +32,11 @@ final class WebhookWhatsappTest extends TestCase
                 'app_secret' => self::SEGREDO, 'verify_token' => self::VERIFY,
             ]),
         ]);
-        DB::table('configuracao')->where('id', 1)->update(['integracao_whatsapp_id' => $id]);
+        // 🔴 AFIRMA que casou. Um `update` que não acha a linha devolve 0 e NÃO falha:
+        // sem esta asserção, a suíte inteira deste arquivo passa a testar o caminho de
+        // "não há integração cadastrada" e devolve 403 em tudo, sem dizer por quê.
+        $ligou = DB::table('configuracao')->where('id', 1)->update(['integracao_whatsapp_id' => $id]);
+        $this->assertSame(1, $ligou, 'a linha única de configuracao não existe — alguém truncou e não a devolveu');
     }
 
     // ---- aperto de mão ---------------------------------------------------

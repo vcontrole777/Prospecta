@@ -232,17 +232,105 @@ final class Fila
      * processo morto no momento errado. Sem esta varredura a Ligação fica presa
      * para sempre, e cada uma prende um canal na contabilidade. NÃO é caso de
      * borda: é operação normal ao longo de semanas.
+     *
+     * 🔴 SOLTA O LEAD TAMBÉM, e é a metade que faltava.
+     *
+     * Antes esta varredura fechava a `ligacao` e não tocava em `leads`. Só `aplicar()`
+     * devolve um Lead do status 2, e `aplicar()` roda no `Hangup` — exatamente o evento
+     * que se perdeu. O Lead ficava em voo PARA SEMPRE, com dois efeitos:
+     *
+     * · nunca mais era discado. O operador contratou três tentativas e teve uma, sem
+     *   nada em tela dizendo por quê.
+     * · `contarEmProcessamento` continuava contando-o, então a guarda que impede
+     *   concluir Campanha com chamada em andamento nunca liberava. A Campanha ficava
+     *   "no ar" sem discar nada e sem nunca concluir, registrando `aguardando` a cada
+     *   volta. Duas peças corretas cada uma por si, presas juntas.
+     *
+     * A regra é a MESMA de `aplicar()` — `try >= max_tentativas` aposenta, senão espera
+     * a próxima rodada — e escrita na mesma forma de propósito: dois caminhos decidindo
+     * quantas discagens o operador pagou discordariam no primeiro ajuste de um deles.
+     *
+     * `Politica` já mandava `Retentar` no desconhecido; perder um evento é falha NOSSA,
+     * e cobrar a tentativa do Lead por isso seria cobrar pelo nosso defeito.
+     *
+     * Só mexe em quem está no status 2. Lead que o `fastagi` já concluiu está em 3 ou 4,
+     * e ressuscitá-lo o discaria de novo depois de ele ter atendido.
+     *
+     * @return array{ligacoes:int, leads:int} Os dois números diferem quando o `Hangup`
+     *                                        chegou para alguns e não para outros, e a
+     *                                        diferença é diagnóstico — não a esconda.
      */
-    public function reconciliar(int $limiteSeg = 300): int
+    public function reconciliar(int $limiteSeg = 300): array
     {
+        // Seleciona primeiro para saber QUAIS Leads soltar. Um `UPDATE ... WHERE
+        // iniciada_em < ...` direto não devolve as linhas afetadas, e recalcular a
+        // condição depois pegaria conjunto diferente: o corte é `NOW()`, que já andou.
         $st = $this->pdo->prepare(
-            "UPDATE ligacao SET encerrada_em = NOW(), desfecho = COALESCE(desfecho, 'erro')
-             WHERE encerrada_em IS NULL AND iniciada_em < NOW() - INTERVAL :s SECOND"
+            'SELECT id, lead_id FROM ligacao
+              WHERE encerrada_em IS NULL AND iniciada_em < NOW() - INTERVAL :s SECOND'
         );
         $st->bindValue('s', $limiteSeg, PDO::PARAM_INT);
         $st->execute();
 
-        return $st->rowCount();
+        $ligacoes = [];
+        $leads = [];
+        foreach ($st->fetchAll() as $linha) {
+            if (! is_array($linha)) {
+                continue;
+            }
+            $id = self::numero($linha['id'] ?? null);
+            if ($id === 0) {
+                continue;
+            }
+            $ligacoes[] = $id;
+
+            // `lead_id` é nulável: ligação manual ou de agente de IA não tem Lead.
+            $lead = self::numero($linha['lead_id'] ?? null);
+            if ($lead !== 0) {
+                $leads[] = $lead;
+            }
+        }
+
+        if ($ligacoes === []) {
+            return ['ligacoes' => 0, 'leads' => 0];
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            // Inteiros interpolados, como em `reivindicar`: já passaram por cast e
+            // vieram do nosso próprio SELECT, não de entrada externa.
+            $idsLigacao = implode(',', $ligacoes);
+
+            $fechadas = $this->pdo->prepare(
+                "UPDATE ligacao SET encerrada_em = NOW(), desfecho = COALESCE(desfecho, 'erro')
+                  WHERE id IN ({$idsLigacao}) AND encerrada_em IS NULL"
+            );
+            $fechadas->execute();
+
+            $soltos = 0;
+            if ($leads !== []) {
+                $idsLead = implode(',', $leads);
+
+                // JOIN em `campanha` porque o teto é da Campanha, não global — foi assim
+                // que `campanha.max_tentativas` acabou lida e jogada fora uma vez, com o
+                // operador pedindo 2 e a discadora fazendo 3.
+                $st = $this->pdo->prepare(
+                    "UPDATE leads l
+                       JOIN campanha c ON c.id = l.campanha_id
+                        SET l.status = IF(l.try >= GREATEST(c.max_tentativas, 1), 3, 4)
+                      WHERE l.id IN ({$idsLead}) AND l.status = 2"
+                );
+                $st->execute();
+                $soltos = $st->rowCount();
+            }
+
+            $this->pdo->commit();
+
+            return ['ligacoes' => $fechadas->rowCount(), 'leads' => $soltos];
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
     }
 
     /**

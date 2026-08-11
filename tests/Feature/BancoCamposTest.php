@@ -35,7 +35,6 @@ final class BancoCamposTest extends TestCase
     {
         parent::setUp();
         $this->actingAs(User::factory()->create());
-        DB::table('configuracao')->insertOrIgnore(['id' => 1]);
     }
 
     protected function tearDown(): void

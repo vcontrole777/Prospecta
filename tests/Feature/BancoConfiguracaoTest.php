@@ -34,7 +34,6 @@ final class BancoConfiguracaoTest extends TestCase
     {
         parent::setUp();
         // Restaura o pressuposto do esquema que a truncagem levou.
-        DB::table('configuracao')->insertOrIgnore(['id' => 1]);
     }
 
     #[Test]

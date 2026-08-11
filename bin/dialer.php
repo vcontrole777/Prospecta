@@ -131,8 +131,14 @@ while ($rodando) {
     // ---- reconciliação periódica -------------------------------------------
     if (time() - $ultimaReconciliacao > 60) {
         $presas = $fila->reconciliar($conf['limite_ligacao_seg']);
-        if ($presas > 0) {
-            $log->linha('reconciliacao', 'Ligações presas encerradas', ['quantas' => $presas]);
+        if ($presas['ligacoes'] > 0) {
+            // Os DOIS números. Ligação fechada sem Lead solto significa que o `Hangup`
+            // chegou e o `aplicar` rodou — normal. Lead solto é o que voltou à Fila, e é
+            // o número que explica por que a Campanha ainda tem trabalho.
+            $log->linha('reconciliacao', 'Ligações presas encerradas', [
+                'ligacoes' => $presas['ligacoes'],
+                'leads_soltos' => $presas['leads'],
+            ]);
         }
         $ultimaReconciliacao = time();
     }
