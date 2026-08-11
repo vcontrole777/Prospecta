@@ -160,22 +160,42 @@ foreach ($busca->fetchAll() as $linha) {
 $orfaos = 0;
 $bytesOrfaos = 0;
 
-$conhecidos = [];
-foreach ($pdo->query('SELECT gravacao FROM ligacao WHERE gravacao IS NOT NULL') as $linha) {
-    if (is_array($linha) && is_string($linha['gravacao'] ?? null)) {
-        $conhecidos[$linha['gravacao']] = true;
-    }
-}
+/*
+ * 🔴 A CONSULTA TEM QUE TER DADO CERTO ANTES DE QUALQUER CONTAGEM.
+ *
+ * `PDO::query` devolve `false` quando falha. Sem esta guarda, `$conhecidos` ficaria vazio
+ * e TODO arquivo do diretório seria contado como órfão: o relatório diria "a instância
+ * inteira está órfã" por causa de uma consulta que não rodou.
+ *
+ * É o mesmo raciocínio que faz esta varredura não apagar nada — só aplicado ao relatório.
+ * Conjunto de referência incompleto não vale para afirmar ausência, nem para apagar nem
+ * para contar. Melhor não relatar do que relatar errado: número errado num relatório de
+ * disco é o que faz alguém apagar o que não devia.
+ */
+$consulta = $pdo->query('SELECT gravacao FROM ligacao WHERE gravacao IS NOT NULL');
 
-// `glob` sobre o diretório de gravação, não recursivo: é onde o MixMonitor escreve, e o
-// caminho é montado por nós a partir de um inteiro (ADR-0003).
-foreach (glob($base . '/*') ?: [] as $arquivo) {
-    if (! is_file($arquivo) || isset($conhecidos[$arquivo])) {
-        continue;
+if ($consulta === false) {
+    $log->linha('erro', 'não pude listar as gravações conhecidas; não conto órfãos nesta volta', [
+        'diretorio' => $base,
+    ]);
+} else {
+    $conhecidos = [];
+    foreach ($consulta as $linha) {
+        if (is_array($linha) && is_string($linha['gravacao'] ?? null)) {
+            $conhecidos[$linha['gravacao']] = true;
+        }
     }
 
-    $orfaos++;
-    $bytesOrfaos += (int) filesize($arquivo);
+    // `glob` sobre o diretório de gravação, não recursivo: é onde o MixMonitor escreve, e
+    // o caminho é montado por nós a partir de um inteiro (ADR-0003).
+    foreach (glob($base . '/*') ?: [] as $arquivo) {
+        if (! is_file($arquivo) || isset($conhecidos[$arquivo])) {
+            continue;
+        }
+
+        $orfaos++;
+        $bytesOrfaos += (int) filesize($arquivo);
+    }
 }
 
 if ($orfaos > 0) {
