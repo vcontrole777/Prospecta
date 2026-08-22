@@ -101,8 +101,8 @@ final class DuracaoMaximaTest extends TestCase
 
         $pior = $this->conta->captura(28, 1.0, $campos);
 
-        // 28 + 1 + 7 + 5 × 2 × (20 + 20) = 436
-        $this->assertSame(436, $pior);
+        // 28 + 1 + 7 + 8 (espera pela tecla no portão) + 5 × 2 × (20 + 20) = 444
+        $this->assertSame(444, $pior);
         $this->assertGreaterThan(300, $pior);
     }
 
@@ -117,17 +117,76 @@ final class DuracaoMaximaTest extends TestCase
     }
 
     /**
-     * A captura NÃO toca o áudio de mensagem.
+     * Sem campos e sem portão configurado, sobra o preâmbulo mais a espera pela tecla.
      *
-     * `Fluxo::captura` pergunta campo a campo, com o prompt de cada um. Somar a mensagem
-     * aqui inflaria a conta e recusaria Campanha que caberia no limite — recusa injusta é
-     * defeito, mesmo sendo do lado conservador.
+     * Os 8 s são do `lerDigitos(..., 1, 8000)` que o portão faz mesmo com a mensagem
+     * ausente — o `Fluxo` recusaria a chamada por `AUDIO_NAO_CONFIGURADO` nesse caso,
+     * mas a conta erra para CIMA de propósito, e é o lado certo de errar.
      */
     #[Test]
-    public function captura_sem_campos_e_so_o_preambulo(): void
+    public function captura_sem_campos_e_o_preambulo_mais_o_portao(): void
     {
-        // 28 de toque + 1 de abertura + 7 de classificação.
-        $this->assertSame(36, $this->conta->captura(28, 1.0, []));
+        // 28 de toque + 1 de abertura + 7 de classificação + 8 de espera pela tecla.
+        $this->assertSame(44, $this->conta->captura(28, 1.0, []));
+    }
+
+    /**
+     * 🔴 A CAPTURA CONTA O PORTÃO, e não contava.
+     *
+     * `Fluxo::captura` chama `portao()` antes das perguntas — Mensagem, tecla de Opt-in,
+     * confirmação — desde que pedir CPF a quem não ouviu a oferta foi reconhecido como
+     * pedir documento sem autorização. A conta ficou para trás e subestimava toda
+     * Campanha de captura pelo custo do portão inteiro.
+     *
+     * Subestimar é o erro caro: a reconciliação declara morta uma chamada VIVA, libera o
+     * canal e disca de novo para quem está na linha digitando o próprio CPF.
+     */
+    #[Test]
+    public function a_captura_conta_a_mensagem_o_nao_entendi_e_a_confirmacao(): void
+    {
+        $campos = [['tentativas' => 2, 'timeoutSeg' => 15, 'promptSeg' => 3.0]];
+
+        $pior = $this->conta->captura(
+            timeoutToqueSeg: 28,
+            aberturaSeg: 1.0,
+            campos: $campos,
+            mensagemSeg: 14.0,
+            tentativasUra: 2,
+            naoEntendiSeg: 3.0,
+            confirmacaoSeg: 6.0,
+        );
+
+        // 28 + 1 + 7            = 36 de preâmbulo
+        // 2 × (14 + 8)          = 44 de mensagem e espera pela tecla
+        // 1 × 3                 =  3 do "não entendi", que toca ENTRE as tentativas
+        // 6                     =  6 da confirmação, uma vez só
+        // 2 × (3 + 15)          = 36 do campo
+        $this->assertSame(125, $pior);
+
+        // Contra a mesma captura sem portão configurado — que ainda paga os 8 s de espera
+        // pela tecla —, a mensagem, o "não entendi" e a confirmação somam 45 s. É essa a
+        // diferença entre passar e não passar no limite da reconciliação.
+        $this->assertSame(45, $pior - $this->conta->captura(28, 1.0, $campos));
+    }
+
+    /** O portão é o MESMO nos dois tipos: mesma mensagem, mesmo custo. */
+    #[Test]
+    public function o_portao_custa_o_mesmo_no_opt_in_e_na_captura(): void
+    {
+        $comum = [
+            'timeoutToqueSeg' => 28,
+            'aberturaSeg' => 1.0,
+            'mensagemSeg' => 14.0,
+            'tentativasUra' => 3,
+            'naoEntendiSeg' => 3.0,
+            'confirmacaoSeg' => 6.0,
+        ];
+
+        $this->assertSame(
+            $this->conta->optIn(...$comum),
+            $this->conta->captura(...[...$comum, 'campos' => []]),
+            'sem campos, a captura é exatamente um opt-in',
+        );
     }
 
     /** Tentativas zero ou negativas contam como uma: o `Fluxo` usa `max(1, ...)`. */
@@ -150,9 +209,9 @@ final class DuracaoMaximaTest extends TestCase
     public function arredonda_para_cima(): void
     {
         $this->assertSame(
-            36,
+            44,
             $this->conta->captura(28, 0.5, []),
-            '28 + 0,5 + 7 = 35,5 tem que virar 36',
+            '28 + 0,5 + 7 + 8 = 43,5 tem que virar 44',
         );
     }
 }

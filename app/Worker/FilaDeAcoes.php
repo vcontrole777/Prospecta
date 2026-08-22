@@ -103,6 +103,75 @@ final class FilaDeAcoes
     }
 
     /**
+     * Reivindica respostas de texto escritas pelo operador.
+     *
+     * Consulta SEPARADA da de `disparo`, e não um `OR` na mesma: o disparo junta
+     * `ligacao`, `leads` e `campanha` para achar telefone e template. Resposta de texto
+     * não tem Ligação — nasce de alguém digitando numa Conversa —, então o mesmo SELECT
+     * precisaria de LEFT JOIN e de ramos condicionais para as duas formas. Duas
+     * consultas simples são mais fáceis de ler que uma que serve a dois donos.
+     *
+     * `referencia_id` é a MENSAGEM (`conversa_mensagem`), não a Conversa. A tabela `acao`
+     * tem `unique(tipo, referencia_id)` para dar idempotência pelo esquema; apontar para
+     * a Conversa faria a segunda resposta do mesmo diálogo colidir. Uma mensagem tem um
+     * envio — é essa a unicidade que faz sentido.
+     *
+     * Texto e telefone vêm do BANCO, não de payload escrito pela tela: deixar as duas
+     * fontes divergirem permitiria mandar um texto enquanto a Conversa mostra outro.
+     *
+     * `ultima_entrada_em` vem junto porque o worker RECONFERE a janela no instante do
+     * envio. A tela já verificou, mas entre digitar e o worker pegar a Ação pode passar
+     * tempo, e a Meta recusa texto fora da janela com 131047.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function reivindicarRespostas(int $quantas): array
+    {
+        $quantas = max(1, $quantas);
+
+        $this->pdo->beginTransaction();
+
+        try {
+            $st = $this->pdo->prepare(
+                "SELECT a.id, a.tentativas, a.referencia_id,
+                        m.texto, m.conversa_id,
+                        c.telefone, c.ultima_entrada_em
+                   FROM acao a
+                   JOIN conversa_mensagem m ON m.id = a.referencia_id
+                   JOIN conversa c          ON c.id = m.conversa_id
+                  WHERE a.tipo = 'resposta_texto' AND a.status = 'pendente'
+                  ORDER BY a.id
+                  LIMIT {$quantas}
+                  FOR UPDATE OF a SKIP LOCKED"
+            );
+            $st->execute();
+
+            /** @var list<array<string,mixed>> $linhas */
+            $linhas = array_values(array_filter($st->fetchAll(), 'is_array'));
+
+            if ($linhas === []) {
+                $this->pdo->commit();
+
+                return [];
+            }
+
+            $ids = array_map(static fn (array $l): int => self::numero($l['id'] ?? null), $linhas);
+            $lista = implode(',', array_filter($ids));
+
+            if ($lista !== '') {
+                $this->pdo->exec("UPDATE acao SET tentativas = tentativas + 1 WHERE id IN ({$lista})");
+            }
+
+            $this->pdo->commit();
+
+            return $linhas;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * Grava o resultado.
      *
      * `processado_em` só é preenchido em estado TERMINAL: uma Ação que voltou para

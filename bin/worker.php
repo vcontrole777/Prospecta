@@ -25,6 +25,7 @@ use App\Dominio\Placeholder;
 use App\Fastagi\Registro;
 use App\Worker\DecisaoDeEnvio;
 use App\Worker\Envio;
+use App\Whatsapp\JanelaDeAtendimento;
 use App\Whatsapp\Leitura;
 use App\Whatsapp\OptOut;
 use App\Worker\FilaDeAcoes;
@@ -170,7 +171,14 @@ while (! $parada->pedida()) {
 
     $acoes = $fila->reivindicar($conf['lote']);
 
-    if ($acoes === []) {
+    // 🔴 AS DUAS FILAS ANTES DA SAÍDA ANTECIPADA, e o lugar disto é load-bearing.
+    // Com a reivindicação das respostas depois do `continue` abaixo, responder só
+    // funcionava quando havia um Disparo na MESMA volta — ou seja, quase nunca, porque
+    // Disparo nasce de Opt-in e resposta nasce de alguém digitando. As duas filas são
+    // independentes; a volta só está vazia quando as duas estão.
+    $respostas = $fila->reivindicarRespostas($conf['lote']);
+
+    if ($acoes === [] && $respostas === []) {
         // Ações que sobraram pendentes com as tentativas no teto. Acontece quando o
         // processo morre entre reivindicar e aplicar — a linha volta a pendente com
         // a tentativa já contada. Sem esta varredura ficariam presas para sempre.
@@ -253,6 +261,14 @@ while (! $parada->pedida()) {
         $d = $politica->decidir($envio, numero($a['tentativas'] ?? null) + 1, $conf['max_tentativas']);
         $fila->aplicar($acaoId, $d, $envio);
 
+        // A mensagem que SAIU também é parte da Conversa. Sem isto a caixa de entrada
+        // mostrava só o lado do Lead — o operador via a resposta dele e não via o que
+        // tinha sido enviado. E o `aplicarStatus` do webhook só faz UPDATE por `wamid`,
+        // então sem a linha os estados de entrega não tinham onde pousar.
+        if ($d->status === 'enviado' && $envio->wamid !== null) {
+            $eventos->registrarSaida($telefone, $envio->wamid, '', $template);
+        }
+
         $log->linha($d->status === 'enviado' ? 'enviado' : 'nao_enviado', $d->motivo, [
             'ligacao' => $ligacaoId,
             'acao' => $acaoId,
@@ -272,7 +288,101 @@ while (! $parada->pedida()) {
         }
     }
 
+    // ---- Respostas de texto escritas na tela de Conversas --------------------
+    //
+    // Depois dos Disparos e no MESMO ciclo, não em processo separado: as duas saídas
+    // usam o mesmo número e a mesma cota da Meta, e um segundo processo enviando em
+    // paralelo tornaria o limite por segundo impossível de respeitar de um lado só.
+    //
+    // Pula quando o canal parou: token inválido derruba as duas formas igual, e insistir
+    // aqui só encheria o log com a mesma falha.
+    if (! $canalParado) {
+        foreach ($respostas as $r) {
+            if ($parada->pedida()) {
+                break;
+            }
+
+            $acaoId = numero($r['id'] ?? null);
+            $mensagemId = numero($r['referencia_id'] ?? null);
+            $conversaId = numero($r['conversa_id'] ?? null);
+            $telefone = texto($r['telefone'] ?? null);
+            $mensagem = texto($r['texto'] ?? null);
+
+            if ($acaoId === 0 || $telefone === '' || trim($mensagem) === '') {
+                $fila->aplicar(
+                    $acaoId,
+                    new DecisaoDeEnvio('falhou', false, false, 'resposta_sem_texto_ou_sem_telefone'),
+                    new Envio(http: 0),
+                );
+                $log->linha('invalida', 'resposta sem texto ou sem telefone', [
+                    'acao' => $acaoId, 'conversa' => $conversaId,
+                ]);
+                continue;
+            }
+
+            // 🔴 RECONFERE A JANELA AQUI. A tela já verificou, mas entre digitar e este
+            // instante pode ter passado tempo — e a janela de 24 h corre pelo relógio do
+            // Lead, não pelo nosso. Enviar fora dela devolve 131047, o operador leria
+            // "falhou" sem causa, e a mensagem estaria perdida. Falhar com motivo
+            // NOMEADO deixa a tela explicar que a janela fechou.
+            $janela = new JanelaDeAtendimento(dataOuNulo($r['ultima_entrada_em'] ?? null));
+
+            if (! $janela->aberta(new DateTimeImmutable('now'))) {
+                $fila->aplicar(
+                    $acaoId,
+                    new DecisaoDeEnvio('falhou', false, false, 'janela_de_24h_fechada'),
+                    new Envio(http: 0),
+                );
+                $log->linha('janela_fechada', 'janela de 24 h fechou antes do envio', [
+                    'acao' => $acaoId, 'conversa' => $conversaId,
+                ]);
+                continue;
+            }
+
+            $envio = $whatsapp->enviarTexto($telefone, $mensagem, 'conversa:' . $conversaId);
+
+            $d = $politica->decidir($envio, numero($r['tentativas'] ?? null) + 1, $conf['max_tentativas']);
+            $fila->aplicar($acaoId, $d, $envio);
+
+            // A linha da mensagem já existe — a tela a criou ao enfileirar, para a
+            // resposta aparecer na conversa na hora. Aqui ela só ganha o `wamid`, que é
+            // o que permite os webhooks de entrega casarem depois.
+            $eventos->confirmarSaida($mensagemId, $envio->wamid, $d->status === 'enviado');
+
+            $log->linha($d->status === 'enviado' ? 'respondido' : 'nao_respondido', $d->motivo, [
+                'acao' => $acaoId,
+                'conversa' => $conversaId,
+                'http' => $envio->http,
+                'codigo' => $envio->codigo,
+                'wamid' => $envio->wamid,
+            ]);
+
+            if ($d->pararCanal) {
+                $log->linha('canal_parado', 'interrompendo a volta: ' . $d->motivo, ['acao' => $acaoId]);
+                $canalParado = true;
+                break;
+            }
+        }
+    }
+
     $parada->dormir($canalParado ? $conf['intervalo_canal_parado_seg'] : 1);
+}
+
+/**
+ * `ultima_entrada_em` chega como string do banco, ou nulo quando o Lead nunca escreveu.
+ * Nulo é janela FECHADA, e `JanelaDeAtendimento` já trata assim.
+ */
+function dataOuNulo(mixed $v): ?DateTimeImmutable
+{
+    if (! is_string($v) || trim($v) === '') {
+        return null;
+    }
+
+    try {
+        return new DateTimeImmutable($v);
+    } catch (\Throwable) {
+        return null;
+    }
 }
 
 $log->linha('fim', 'worker encerrado');

@@ -37,6 +37,11 @@ final class Dados
         public readonly ?string $audioMensagem,
         public readonly ?string $audioConfirmaOptIn,
         public readonly ?string $audioConfirmaOptOut,
+        /**
+         * O "recebi, obrigado" do fim da captura. Toca UMA vez, só quando os campos
+         * obrigatórios vieram — ver `Fluxo::captura` e a migration que criou a coluna.
+         */
+        public readonly ?string $audioConfirmaCaptura,
         public readonly ?string $audioNaoEntendi,
         public readonly ?string $teclaOptIn,
         public readonly ?string $teclaOptOut,
@@ -44,6 +49,11 @@ final class Dados
         public readonly bool $gravacaoAtiva,
         public readonly string $gravacaoDir,
         public readonly array $campos = [],
+        /**
+         * Chave do Pós-atendimento. `true` por default: o classificador existia antes de
+         * ser configurável, e o default tem que descrever o sistema como ele já era.
+         */
+        public readonly bool $classificadorPosAtivo = true,
         public readonly array $amd = ['6000', '4000', '800', '5000', '100', '50', '3', '256', '5000'],
     ) {
     }

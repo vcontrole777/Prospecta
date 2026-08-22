@@ -199,16 +199,29 @@ final class CampanhaCapturaTest extends TestCase
 
     // ---- a guarda de iniciar --------------------------------------------
 
-    /** Captura NÃO usa áudio de mensagem: exigi-lo recusaria Campanha bem configurada. */
+    /**
+     * 🔴 CAPTURA EXIGE ÁUDIO DE MENSAGEM, e isto MUDOU.
+     *
+     * Este teste travava o contrário — "captura não usa áudio de mensagem" — e estava
+     * certo enquanto `Fluxo::captura` ia direto ao prompt do primeiro campo. A captura
+     * passou a exigir o mesmo portão do opt_in: Mensagem, tecla de Opt-in, e só então as
+     * perguntas. Pedir CPF a quem não ouviu a oferta e não apertou nada é pedir documento
+     * sem autorização, e na prática ninguém digita.
+     *
+     * Sem esta guarda a ativação aprovaria uma Campanha que aborta na PRIMEIRA ligação
+     * com `AUDIO_NAO_CONFIGURADO` — erro longe da causa, que é o que a tela evita.
+     */
     #[Test]
-    public function captura_inicia_sem_audio_de_mensagem(): void
+    public function captura_sem_audio_de_mensagem_nao_vai_ao_ar(): void
     {
         $id = $this->campanhaDeCaptura();
         DB::table('leads')->insert(['campanha_id' => $id, 'telefone' => '5511987654321', 'status' => 1]);
 
-        Livewire::test(Campanhas::class)->call('iniciar', $id);
+        Livewire::test(Campanhas::class)
+            ->call('iniciar', $id)
+            ->assertSee('áudio da mensagem não escolhido', escape: false);
 
-        $this->assertSame(1, (int) DB::table('campanha')->where('id', $id)->value('status'));
+        $this->assertSame(0, (int) DB::table('campanha')->where('id', $id)->value('status'));
     }
 
     #[Test]

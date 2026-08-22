@@ -80,6 +80,23 @@ final class Placeholder
         }
         sort($posicoes);
 
+        /*
+         * 🔴 GUARDA DO VAZIO, e ela existe por uma armadilha do PHP.
+         *
+         * `range(1, 0)` NÃO devolve lista vazia: devolve `[1, 0]`, porque o `range`
+         * conta de trás quando o fim é menor que o início. Sem esta guarda, mapa vazio
+         * comparava `[]` com `[1, 0]`, a comparação falhava, e TODO template sem
+         * parâmetro era recusado como "não sequencial".
+         *
+         * MEDIDO em produção: quatro Ações de disparo falharam com
+         * `template_mapa_invalido | ... recebido  e esperado 1,0` — o "recebido" vazio
+         * ao lado de um "esperado" impossível é a assinatura deste defeito. Template
+         * sem parâmetro é caso legítimo e comum: toda mensagem de texto fixo é assim.
+         */
+        if ($posicoes === []) {
+            return [];
+        }
+
         $esperado = range(1, count($posicoes));
         if ($posicoes !== $esperado) {
             throw ErroDeDominio::mapaNaoSequencial(

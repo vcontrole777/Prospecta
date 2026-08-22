@@ -19,6 +19,11 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing" force="true"/>
+        <!-- 🔴 FIXO. Sem isto os testes herdam o APP_URL do .env da máquina, e
+             os que exercitam o aviso de "sem HTTPS" passam por ACIDENTE numa
+             instalação em http e quebram numa em https — acusando regressão
+             onde não há. Verificado ao apontar uma instância para https://. -->
+        <env name="APP_URL" value="http://localhost" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
         <env name="BCRYPT_ROUNDS" value="4" force="true"/>
         <env name="BROADCAST_CONNECTION" value="null" force="true"/>

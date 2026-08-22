@@ -129,6 +129,24 @@
                                             class="btn btn-ghost btn-xs">pausar</button>
                                 @endif
 
+                                {{-- 🔴 REINICIAR SÓ FORA DO AR. Repor a fila com a Campanha
+                                     discando faria o dialer pegar Leads devolvidos enquanto
+                                     ainda processa os de agora — a mesma pessoa recebendo
+                                     duas ligações da mesma rodada.
+
+                                     E só quando há o que reiniciar: histórico para apagar,
+                                     ou Lead fora da fila para devolver. Numa Campanha que
+                                     nunca rodou o botão não faria nada, e seria ruído.
+
+                                     🔴 O texto diz que APAGA e que NÃO VOLTA. Quem clica
+                                     aqui está a um passo de perder gravação de conversa
+                                     real; "reiniciar" sozinho não sugere isso. --}}
+                                @if ($c['status'] !== 1 && ($c['discadas'] > 0 || $c['finalizados'] > 0 || $c['aguardando'] > 0))
+                                    <button wire:click="reiniciar({{ $c['id'] }})"
+                                            wire:confirm="Reiniciar a Campanha do zero?&#10;&#10;APAGA todo o histórico dela — ligações, desfechos, dados capturados e GRAVAÇÕES. Isso NÃO tem volta; exporte na tela de Resultados antes, se precisar.&#10;&#10;Todos os números voltam para a fila, MENOS quem deu Opt-in e quem está na Lista de bloqueio (Opt-out). A Campanha vai ao ar em seguida e começa a discar sozinha."
+                                            class="btn btn-ghost btn-xs text-error">reiniciar</button>
+                                @endif
+
                                 {{-- Importar aparece com destaque enquanto a
                                      Campanha não tem Lead: é a peça que falta para
                                      ela poder ir ao ar, e a guarda de iniciar não

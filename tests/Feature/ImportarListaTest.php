@@ -217,6 +217,53 @@ final class ImportarListaTest extends TestCase
     }
 
     /** Envia o CSV e devolve o componente já na etapa de conferência. */
+    /**
+     * 🔴 ARQUIVO COM TELEFONE REPETIDO. Regressão medida em produção, com 500 na cara
+     * do operador.
+     *
+     * O `INSERT` é em LOTE, e a cláusula era `ON DUPLICATE KEY UPDATE id = id`. O MySQL 8
+     * recusa atribuição à coluna AUTO_INCREMENT quando o lote traz duplicata dentro dele:
+     *
+     *     SQLSTATE[HY000]: General error: 1869
+     *     Auto-increment value in UPDATE conflicts with internally generated values
+     *
+     * Não aparecia em teste porque todo arquivo de exemplo tinha telefones distintos —
+     * e lista real de discagem repete número o tempo todo. Um caractere de diferença
+     * entre "importa" e "500".
+     */
+    #[Test]
+    public function importa_arquivo_com_telefone_repetido(): void
+    {
+        $this->enviar(
+            "Nome,Telefone\n"
+            . "Maria,11987654321\n"
+            . "João,11912345678\n"
+            . "Maria de novo,11987654321\n"     // repetido DENTRO do arquivo
+            . "Ana,11955554444\n"
+        )
+            ->call('importar')
+            ->assertSet('inseridos', 3)
+            ->assertSet('duplicados', 1)
+            ->assertSet('etapa', 'pronto');
+
+        // A repetida não vira segunda linha: o UNIQUE(campanha_id, telefone) é quem
+        // garante que o mesmo número não seja discado duas vezes pela Campanha.
+        $this->assertSame(3, DB::table('leads')->count());
+        $this->assertSame(1, DB::table('leads')->where('telefone', '5511987654321')->count());
+    }
+
+    /** Reimportar o MESMO arquivo não duplica nada — a operação é reentrante. */
+    #[Test]
+    public function reimportar_o_mesmo_arquivo_nao_duplica(): void
+    {
+        $csv = "Nome,Telefone\nMaria,11987654321\nJoão,11912345678\n";
+
+        $this->enviar($csv)->call('importar')->assertSet('inseridos', 2);
+        $this->enviar($csv)->call('importar')->assertSet('inseridos', 0)->assertSet('duplicados', 2);
+
+        $this->assertSame(2, DB::table('leads')->count());
+    }
+
     private function enviar(string $conteudo): \Livewire\Features\SupportTesting\Testable
     {
         $arquivo = UploadedFile::fake()->createWithContent('lista.csv', $conteudo);

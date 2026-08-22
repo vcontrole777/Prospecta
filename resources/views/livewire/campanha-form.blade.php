@@ -25,8 +25,9 @@
 
             <p class="text-sm text-base-content/60">
                 @if ($tipo === 'captura')
-                    A URA pergunta os campos na ordem definida abaixo e grava o que for
-                    digitado. Não há tecla de opt-in nesse tipo.
+                    A URA toca a mensagem, espera a tecla de opt-in e só então pergunta os
+                    campos na ordem definida abaixo. Quem não apertar a tecla não é
+                    perguntado — pedir documento a quem não autorizou é pedir sem permissão.
                 @else
                     A URA toca a mensagem e espera uma tecla.
                 @endif
@@ -184,12 +185,25 @@
         <section class="flex flex-col gap-4">
             <h2 class="rotulo border-b border-[var(--rule)] pb-1">URA</h2>
 
-            @if ($tipo === 'opt_in')
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <x-input label="Tecla de opt-in" wire:model="tecla_opt_in" maxlength="1" class="identificador" />
-                    <x-input label="Tecla de opt-out" wire:model="tecla_opt_out" maxlength="1" class="identificador" />
-                </div>
-            @endif
+            {{-- 🔴 AS TECLAS VALEM NOS DOIS TIPOS, e estavam escondidas na captura.
+                 O `@if ($tipo === 'opt_in')` que ficava aqui é de antes de a captura passar
+                 a exigir o mesmo portão do opt-in. Depois da mudança no `Fluxo`, a captura
+                 compara a tecla igual — mas a tela não deixava configurá-la, então ela
+                 ficava no default '1' da propriedade.
+
+                 Custou uma Campanha inteira: a de captura tinha áudio pedindo "digite 2" e
+                 esperava '1'. As 4 pessoas que apertaram alguma coisa apertaram 2, viraram
+                 `invalido`, e a Campanha nunca coletou um CPF. Medido em 21/08/2026. --}}
+            <div class="grid gap-4 sm:grid-cols-2">
+                <x-input label="Tecla de opt-in" wire:model="tecla_opt_in" maxlength="1" class="identificador" />
+                <x-input label="Tecla de opt-out" wire:model="tecla_opt_out" maxlength="1" class="identificador" />
+            </div>
+
+            <p class="text-sm text-base-content/60">
+                A tecla de opt-in precisa ser a mesma que o áudio da mensagem pede. Errar
+                aqui não dá erro em lugar nenhum: as Ligações saem, as pessoas atendem e
+                apertam, e todas viram <span class="identificador">invalido</span>.
+            </p>
 
             @if ($audios === [])
                 {{-- Estado vazio honesto: sem áudio a Campanha liga e não fala
@@ -220,6 +234,25 @@
                     <x-select label="Não entendi" wire:model="audio_nao_entendi_id"
                               :options="$audios" option-label="nome" placeholder="— nenhum —" />
                 </div>
+
+                {{-- Só na captura: é o único tipo que tem um fim de coleta para confirmar.
+                     Numa Campanha de opt-in o retorno já é a "Confirmação de opt-in". --}}
+                @if ($tipo === 'captura')
+                    <x-select
+                        label="Confirmação da captura"
+                        wire:model="audio_confirma_captura_id"
+                        :options="$audios"
+                        option-label="nome"
+                        placeholder="— nenhum —"
+                    />
+                    <p class="text-sm text-base-content/60">
+                        O "recebi, obrigado" tocado no fim, e só quando os campos
+                        obrigatórios vieram. Sem ele a captura termina MUDA: a pessoa digita
+                        os 11 dígitos do CPF, ouve silêncio e a linha cai — do lado dela isso
+                        é indistinguível de ter dado errado, logo depois de entregar um
+                        documento.
+                    </p>
+                @endif
             @endif
         </section>
 
@@ -242,10 +275,65 @@
                     registrada e fica aguardando — não é perdida, mas também não sai.
                 </p>
             @else
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <x-input label="Nome do template" wire:model="template_nome" class="identificador" />
-                    <x-input label="Idioma" wire:model="template_idioma" class="identificador" />
-                </div>
+                {{-- Escolher da lista em vez de digitar: nome e idioma vêm colados da
+                     Meta, e só aparece o que está APPROVED. Digitar à mão errava em
+                     silêncio — a Campanha salvava e o Disparo é que falhava depois. --}}
+                @if ($templates !== [] && ! $template_manual)
+                    <x-select label="Template aprovado"
+                              wire:model.live="template_escolhido"
+                              :options="$templates"
+                              option-value="chave" option-label="rotulo"
+                              placeholder="— escolha —" />
+
+                    @if ($this->templateAtual !== null)
+                        <div class="mt-2 rounded-lg bg-base-200 p-3 text-sm">
+                            <p class="text-base-content/60">
+                                Idioma <span class="identificador">{{ $this->templateAtual['idioma'] }}</span>,
+                                @if ($this->templateAtual['parametros'] === 0)
+                                    sem parâmetros.
+                                @else
+                                    {{ $this->templateAtual['parametros'] }}
+                                    {{ $this->templateAtual['parametros'] === 1 ? 'parâmetro' : 'parâmetros' }}
+                                    — informe {{ $this->templateAtual['parametros'] === 1 ? 'a coluna' : 'as colunas' }}
+                                    abaixo, na ordem.
+                                @endif
+                            </p>
+                            @if ($this->templateAtual['corpo'] !== '')
+                                <p class="mt-2 whitespace-pre-line text-base-content/80">{{ $this->templateAtual['corpo'] }}</p>
+                            @endif
+                        </div>
+                    @endif
+                @endif
+
+                @if ($templates_erro !== null)
+                    <p class="text-sm text-warning">{{ $templates_erro }}</p>
+                @endif
+
+                {{-- Nome e idioma SÓ aparecem quando não há lista, ou quando o operador
+                     pede. Escolher da lista já preenche os dois — mostrar os campos ao
+                     lado seria pedir de novo o que acabou de ser respondido.
+
+                     O escape não pode sumir, porém: token de escopo estreito, Meta fora
+                     do ar e template recém-criado são casos reais, e nenhum pode impedir
+                     de cadastrar a Campanha. --}}
+                @if ($templates === [] || $template_manual)
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <x-input label="Nome do template" wire:model="template_nome" class="identificador" />
+                        <x-input label="Idioma" wire:model="template_idioma" class="identificador" />
+                    </div>
+
+                    @if ($templates !== [])
+                        <button type="button" wire:click="escolherDaLista"
+                                class="self-start text-sm text-primary hover:underline">
+                            ← escolher da lista de aprovados
+                        </button>
+                    @endif
+                @else
+                    <button type="button" wire:click="preencherAMao"
+                            class="self-start text-sm text-base-content/60 hover:text-primary hover:underline">
+                        Não está na lista? Preencher à mão
+                    </button>
+                @endif
 
                 <p class="text-sm text-base-content/60">
                     Os botões de resposta rápida são definidos na criação do template,

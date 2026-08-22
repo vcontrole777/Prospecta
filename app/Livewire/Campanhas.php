@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Livewire;
 
 use App\Audio\Alaw;
+use App\Dominio\CaminhoDeGravacao;
 use App\Dominio\DuracaoMaxima;
 use App\Dominio\SituacaoDoArquivo;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 
 /**
@@ -69,13 +71,25 @@ final class Campanhas extends Component
         $ehCaptura = ($c['tipo'] ?? null) === 'captura';
 
         if ($ehCaptura) {
-            // 🔴 Captura NÃO usa o áudio de mensagem — `Fluxo::captura` pergunta campo a
-            // campo, com o prompt de cada um. Exigir a mensagem aqui recusaria uma
-            // Campanha perfeitamente configurada.
             foreach ($this->faltasDeCaptura($id) as $falta) {
                 $faltas[] = $falta;
             }
-        } elseif (($c['audio_mensagem_id'] ?? null) === null) {
+        }
+
+        /*
+         * 🔴 A MENSAGEM É EXIGIDA NOS DOIS TIPOS, e isto MUDOU.
+         *
+         * Havia aqui uma exceção para captura, com a justificativa de que `Fluxo::captura`
+         * perguntava campo a campo sem tocar a Mensagem. Era verdade e deixou de ser: a
+         * captura passou a exigir o mesmo portão do opt_in — Mensagem, tecla, e só então
+         * as perguntas —, porque pedir CPF a quem não ouviu a oferta é pedir documento sem
+         * autorização, e na prática ninguém digita.
+         *
+         * Manter a exceção deixaria a ativação aprovar uma Campanha que aborta na primeira
+         * ligação com `AUDIO_NAO_CONFIGURADO`: erro longe da causa, que é justamente o que
+         * esta tela existe para evitar.
+         */
+        if (($c['audio_mensagem_id'] ?? null) === null) {
             $faltas[] = 'áudio da mensagem não escolhido — a chamada sairia muda';
         } else {
             // 🔴 A LINHA NO BANCO NÃO É PROVA de que o arquivo existe e serve.
@@ -152,19 +166,43 @@ final class Campanhas extends Component
         $conta = new DuracaoMaxima();
         $abertura = $this->duracaoDaAbertura();
 
+        // 🔴 O PORTÃO VALE NOS DOIS TIPOS, e a captura não o passava.
+        //
+        // `Fluxo::captura` chama `portao()` antes das perguntas desde que pedir CPF sem
+        // Opt-in foi reconhecido como pedir documento sem autorização. Aqui a captura
+        // seguia chamando `DuracaoMaxima::captura` só com os campos, e o custo do portão
+        // — mensagem × tentativas da URA, "não entendi" entre elas, confirmação — não
+        // entrava na conta que decide se a Campanha pode ir ao ar.
+        $mensagem = $this->duracaoDoAudio(self::inteiro($c['audio_mensagem_id'] ?? null));
+        $tentativasUra = max(1, self::inteiro($c['tentativas_ura'] ?? null));
+        $naoEntendi = $this->duracaoDoAudio(self::inteiro($c['audio_nao_entendi_id'] ?? null));
+
+        // `max` das duas confirmações: qual delas toca depende da tecla, e a conta é do
+        // PIOR caso. A de Opt-in é a que continua para os campos, mas errar para cima é o
+        // lado seguro — subestimar deixa passar a Campanha que estoura a reconciliação.
+        $confirmacao = max(
+            $this->duracaoDoAudio(self::inteiro($c['audio_confirma_opt_in_id'] ?? null)),
+            $this->duracaoDoAudio(self::inteiro($c['audio_confirma_opt_out_id'] ?? null)),
+        );
+
         if ($ehCaptura) {
-            $pior = $conta->captura($toque, $abertura, $this->camposParaConta($id));
+            $pior = $conta->captura(
+                timeoutToqueSeg: $toque,
+                aberturaSeg: $abertura,
+                campos: $this->camposParaConta($id),
+                mensagemSeg: $mensagem,
+                tentativasUra: $tentativasUra,
+                naoEntendiSeg: $naoEntendi,
+                confirmacaoSeg: $confirmacao,
+            );
         } else {
             $pior = $conta->optIn(
                 timeoutToqueSeg: $toque,
                 aberturaSeg: $abertura,
-                mensagemSeg: $this->duracaoDoAudio(self::inteiro($c['audio_mensagem_id'] ?? null)),
-                tentativasUra: max(1, self::inteiro($c['tentativas_ura'] ?? null)),
-                naoEntendiSeg: $this->duracaoDoAudio(self::inteiro($c['audio_nao_entendi_id'] ?? null)),
-                confirmacaoSeg: max(
-                    $this->duracaoDoAudio(self::inteiro($c['audio_confirma_opt_in_id'] ?? null)),
-                    $this->duracaoDoAudio(self::inteiro($c['audio_confirma_opt_out_id'] ?? null)),
-                ),
+                mensagemSeg: $mensagem,
+                tentativasUra: $tentativasUra,
+                naoEntendiSeg: $naoEntendi,
+                confirmacaoSeg: $confirmacao,
             );
         }
 
@@ -389,6 +427,324 @@ final class Campanhas extends Component
     private function diretorioDeAudioAcessivel(string $diretorio): bool
     {
         return (new SituacaoDoArquivo())->diretorioAcessivel($diretorio);
+    }
+
+    /**
+     * Campanha do zero: devolve TODOS os números à fila, APAGA o histórico e põe no ar.
+     *
+     * 🔴 SÓ OPT-IN E OPT-OUT FICAM DE FORA, e essa é a regra inteira.
+     *
+     * `opt_out` é obrigatório: a pessoa pediu para não ser contatada. O dialer já a
+     * barraria pela Lista de bloqueio (`Dialer\Fila` consulta na discagem), mas repor o
+     * Lead só para ele ser descartado adiante esconde a intenção no código e infla a fila
+     * com trabalho que não existe.
+     *
+     * `opt_in` fica de fora porque já converteu: ligar de novo para quem disse sim é gastar
+     * canal com quem já está do outro lado do funil — e, para o Lead, é a empresa que não
+     * percebeu que ele já respondeu.
+     *
+     * 🔴 `captura_concluida` e `captura_parcial` VOLTAM, e isto MUDOU. Antes ficavam de
+     * fora com o argumento de que "atendeu e falou" não é "não conseguiu falar". Reiniciar
+     * deixou de ser "recuperar quem escapou" e passou a ser "rodar a Campanha de novo", e
+     * nessa leitura recadastramento é para todo mundo menos quem converteu ou recusou.
+     *
+     * A fonte da verdade sobre Opt-in é `leads.opt_in_em`, NÃO `ligacao.desfecho`: o
+     * histórico é apagado logo abaixo, e ler a prova de uma tabela que este mesmo método
+     * esvazia faria o segundo reinício rediscar quem o primeiro poupou. Ver a migration
+     * `leads_guarda_opt_in`. O Opt-out não tem esse problema — `bloqueio` é global e
+     * permanente — e cobre também o Opt-out que veio por WhatsApp, sem Ligação nenhuma.
+     *
+     * `leads.status`: 1 disponível · 2 reivindicado (em voo) · 3 terminal · 4 aguardando a
+     * próxima rodada. Reiniciar leva 1, 3 e 4 para disponível com o `try` zerado.
+     *
+     * O 1 entra na conta de propósito, e não é redundância: um Lead disponível pode estar
+     * no MEIO do ciclo de tentativas, devolvido à fila pelo dialer com `try` já em 2 de 3.
+     * Deixá-lo intacto faria a rodada nova começar com ele quase esgotado, enquanto os
+     * vizinhos recomeçam com o crédito cheio — mesma Campanha, dois comportamentos, e a
+     * diferença invisível na tela.
+     *
+     * 🔴 NÃO TOCA EM STATUS 2, nem no Lead nem na Ligação dele. Aquele Lead está com uma
+     * Ligação EM CURSO — o dialer o reivindicou e o fastagi ainda vai gravar o desfecho.
+     * Devolvê-lo faria o mesmo número ser discado enquanto a pessoa está na linha, e apagar
+     * a linha da Ligação faria o `UPDATE` do fastagi acertar zero linhas em silêncio,
+     * perdendo o desfecho de uma conversa que aconteceu.
+     *
+     * 🔴 APAGA O HISTÓRICO, e isto MUDOU — era o contrário, com o argumento de que o
+     * histórico é o produto. Passa a ser decisão do operador: reiniciar é começar de novo,
+     * com os contadores da tela em zero. É IRREVERSÍVEL e leva junto desfechos, dados
+     * capturados e GRAVAÇÕES. Quem precisa do que foi apurado exporta antes, na tela de
+     * Resultados; o texto de confirmação diz isso.
+     *
+     * 🔴 PÕE NO AR SOZINHO, e isto MUDOU. Passa pelo `iniciar()` normal, não por um atalho:
+     * as guardas de ativação — áudio no disco, template, duração que cabe na reconciliação
+     * — são o que separa "discou" de "discou e não fez nada", e um caminho paralelo que as
+     * pulasse seria a forma mais cara de descobrir isso. Recusa vira recado na tela, com a
+     * fila já reposta.
+     */
+    public function reiniciar(int $id): void
+    {
+        $atual = DB::table('campanha')->where('id', $id)->value('status');
+        if ($atual === null) {
+            return;
+        }
+
+        // 🔴 RECUSA COM A CAMPANHA NO AR. O botão já não aparece nesse estado, mas a
+        // guarda mora aqui: repor a fila enquanto o dialer trabalha faria a mesma pessoa
+        // receber duas ligações da mesma rodada, e agora há apagamento no meio.
+        if (self::inteiro($atual) === 1) {
+            session()->flash('recusa', 'Não reiniciei: a Campanha está no ar. Pause antes.');
+
+            return;
+        }
+
+        // Carimba o Opt-in no Lead ANTES de apagar a Ligação que o prova. É idempotente e
+        // cobre o histórico que existe hoje; daqui para a frente quem carimba é o fastagi.
+        DB::update(<<<'SQL'
+            UPDATE leads le
+              JOIN ligacao l ON l.lead_id = le.id
+               SET le.opt_in_em = COALESCE(le.opt_in_em, l.encerrada_em, l.iniciada_em)
+             WHERE le.campanha_id = ? AND l.desfecho = 'opt_in'
+        SQL, [$id]);
+
+        $gravacoes = $this->apagarGravacoes($id);
+        if ($gravacoes === null) {
+            return;   // diretório cego: a recusa já foi para a tela, nada foi tocado
+        }
+
+        [$apagadas, $retidas] = $gravacoes;
+
+        // Contadores por referência, e não pelo retorno da transação: `DB::transaction`
+        // devolve `mixed`, e ler `$contas['repostos']` de um mixed é exatamente o tipo
+        // solto que a análise estática cobra — com razão, porque o recado da tela sai daqui.
+        $repostos = 0;
+        $ligacoes = 0;
+        $disparos = 0;
+
+        DB::transaction(function () use ($id, $retidas, &$repostos, &$ligacoes, &$disparos): void {
+            // 🔴 As Ações ANTES das Ligações: a subconsulta lê `ligacao`, e apagar a
+            // Ligação primeiro deixaria o Disparo pendente órfão. `FilaDeAcoes` reivindica
+            // com `JOIN ligacao` — sem a Ligação, a linha some da fila e fica `pendente`
+            // para sempre, invisível, exatamente como o `evento_captura_concluida` que a
+            // migration de `acao` conta como lição aprendida.
+            $disparos = DB::table('acao')
+                ->where('tipo', 'disparo')
+                ->where('status', 'pendente')
+                ->whereIn('referencia_id', $this->ligacoesAApagar($id, $retidas)->select('id'))
+                ->count();
+
+            DB::table('acao')
+                ->where('tipo', 'disparo')
+                ->whereIn('referencia_id', $this->ligacoesAApagar($id, $retidas)->select('id'))
+                ->delete();
+
+            $ligacoes = $this->ligacoesAApagar($id, $retidas)->delete();
+
+            $repostos = DB::table('leads')
+                ->where('campanha_id', $id)
+                ->whereIn('status', [1, 3, 4])
+                ->whereNull('opt_in_em')
+                ->whereNotExists(function ($q): void {
+                    $q->select(DB::raw(1))
+                        ->from('bloqueio as b')
+                        ->whereColumn('b.telefone', 'leads.telefone');
+                })
+                ->update(['status' => 1, 'try' => 0]);
+
+            // `rodada_atual` e `iniciada_em` fazem parte do histórico: deixá-los seria a
+            // tela dizer "rodada 4, começou em março" ao lado de zero ligações.
+            DB::table('campanha')->where('id', $id)->update([
+                'rodada_atual' => 0,
+                'iniciada_em' => null,
+            ]);
+
+            // Concluída volta a PAUSADA, não direto ao ar: quem põe no ar é o `iniciar()`
+            // logo abaixo, com as guardas. E se ele recusar, a Campanha fica num estado que
+            // a tela sabe oferecer — sem isso ela ficaria concluída, sem histórico e sem
+            // botão nenhum, encalhada.
+            DB::table('campanha')->where('id', $id)->where('status', 3)->update(['status' => 2]);
+        });
+
+        // Recusa velha, de outro clique, ainda está na sessão nesta volta. Sem o
+        // `forget` ela seria lida abaixo como se fosse a resposta do `iniciar()` de agora.
+        session()->forget('recusa');
+        session()->forget('recado');
+
+        $this->iniciar($id);
+
+        $resumo = sprintf(
+            'Reiniciei: %d número(s) de volta na fila, %d ligação(ões) e %d gravação(ões) apagadas.',
+            $repostos,
+            $ligacoes,
+            $apagadas,
+        );
+
+        if ($disparos > 0) {
+            $resumo .= sprintf(
+                ' %d disparo(s) de WhatsApp ainda pendentes foram descartados junto com as Ligações.',
+                $disparos,
+            );
+        }
+
+        if ($retidas !== []) {
+            $resumo .= sprintf(
+                ' %d ligação(ões) foram MANTIDAS porque não consegui apagar a gravação delas do'
+                . ' disco — apagar a linha deixaria o arquivo lá para sempre, fora do alcance do'
+                . ' expurgo.',
+                count($retidas),
+            );
+        }
+
+        $recusa = session()->get('recusa');
+
+        if (is_string($recusa) && $recusa !== '') {
+            session()->flash('recusa', $resumo . ' ' . $recusa);
+        } else {
+            session()->flash('recado', $resumo . ' Campanha no ar.');
+        }
+
+        $this->dispatch(
+            'campanha-reiniciada',
+            repostos: $repostos,
+            ligacoes: $ligacoes,
+            gravacoes: $apagadas,
+        );
+    }
+
+    /**
+     * As Ligações que o reinício apaga.
+     *
+     * Tudo da Campanha MENOS as de Lead em voo — ver o 🔴 de `reiniciar` — e menos as que
+     * ficaram retidas por gravação que não pôde ser apagada.
+     *
+     * `whereNotExists` e não `whereNotIn('lead_id', ...)`: Ligação com `lead_id` NULL
+     * existe (o Lead foi apagado, e a FK é `nullOnDelete`), e `NULL NOT IN (...)` é NULL,
+     * que o SQL trata como falso — ela escaparia do apagamento sem ninguém notar.
+     *
+     * @param  list<int>  $retidas
+     */
+    private function ligacoesAApagar(int $campanhaId, array $retidas): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('ligacao')
+            ->where('campanha_id', $campanhaId)
+            ->whereNotIn('id', $retidas)
+            ->whereNotExists(function ($q): void {
+                $q->select(DB::raw(1))
+                    ->from('leads as le')
+                    ->whereColumn('le.id', 'ligacao.lead_id')
+                    ->where('le.status', 2);
+            });
+    }
+
+    /**
+     * Apaga do disco as gravações que vão embora com o histórico.
+     *
+     * 🔴 O ARQUIVO PRIMEIRO, A LINHA DEPOIS — a mesma ordem do `bin/expurgo.php`, e pela
+     * mesma razão. Nesta ordem, morrer no meio deixa linha apontando para arquivo ausente,
+     * que o expurgo reencontra e limpa. Na ordem inversa deixa arquivo no disco sem
+     * nenhuma linha apontando para ele: vazamento permanente, invisível, que só um `find`
+     * manual acharia. Num produto de uma VPS por cliente, o que enche é o disco — e é o
+     * mesmo disco em que o Asterisk grava.
+     *
+     * Por isso o que falhar aqui RETÉM a Ligação em vez de seguir adiante: manter a linha é
+     * o que mantém o arquivo alcançável.
+     *
+     * @return array{0:int, 1:list<int>}|null  [apagadas, ligações retidas]; `null` quando
+     *                                          recusei mexer em qualquer coisa
+     */
+    private function apagarGravacoes(int $campanhaId): ?array
+    {
+        $configurado = config('fastagi.gravacao_dir');
+        $base = is_string($configurado) ? rtrim($configurado, '/') : '';
+
+        $comGravacao = $this->ligacoesAApagar($campanhaId, [])->whereNotNull('gravacao')->count();
+
+        if ($comGravacao === 0) {
+            return [0, []];
+        }
+
+        /*
+         * 🔴 ABORTA SE NÃO ATRAVESSAR O DIRETÓRIO, e é a guarda que impede o pior caso.
+         *
+         * Sem ela: sem permissão no diretório, `is_file()` responde `false` para TODO
+         * arquivo; o laço abaixo conta cada um como "já ausente", nada é apagado e as
+         * linhas somem mesmo assim. Toda gravação da Campanha ficaria no disco sem linha
+         * apontando para ela, em silêncio e para sempre — o expurgo só conhece o que está
+         * no banco. Medido nesta máquina: o diretório é `asterisk:asterisk` modo 2770 e o
+         * php-fpm roda como `prospecta`; basta a adesão ao grupo faltar.
+         *
+         * A condição é GLOBAL — se vale, toda decisão desta passada estaria errada do mesmo
+         * jeito —, então recuso a operação inteira em vez de pular linha a linha. Diretório
+         * INEXISTENTE não é anomalia: é instância sem gravação ligada, e aí os caminhos no
+         * banco só apontam para o que não existe mais.
+         */
+        if ($base === '') {
+            session()->flash('recusa', 'Não reiniciei: PROSPECTA_GRAVACAO_DIR não está configurado e '
+                . 'esta Campanha tem gravações — eu apagaria as linhas e deixaria os arquivos no disco.');
+
+            return null;
+        }
+
+        if (is_dir($base) && (! is_readable($base) || ! is_executable($base))) {
+            session()->flash('recusa', sprintf(
+                'Não reiniciei: sem acesso a %s, e esta Campanha tem gravações. Eu apagaria as '
+                . 'linhas sem conseguir apagar os arquivos, e eles ficariam no disco para sempre. '
+                . 'O usuário do painel precisa estar no grupo do diretório.',
+                $base,
+            ));
+
+            return null;
+        }
+
+        $caminho = new CaminhoDeGravacao();
+        $apagadas = 0;
+        $retidas = [];
+
+        $this->ligacoesAApagar($campanhaId, [])
+            ->whereNotNull('gravacao')
+            ->select('id', 'gravacao')
+            ->orderBy('id')
+            ->chunk(500, function ($linhas) use (&$apagadas, &$retidas, $caminho, $base): void {
+                foreach ($linhas as $linha) {
+                    $l = (array) $linha;
+                    $ligacao = self::inteiro($l['id'] ?? null);
+                    $arquivo = self::texto($l['gravacao'] ?? null);
+
+                    if ($ligacao === 0 || $arquivo === '') {
+                        continue;
+                    }
+
+                    // Contenção antes de apagar (ADR-0003). Hoje o caminho é derivado de um
+                    // inteiro pelo nosso código e não pode escapar; a checagem existe para
+                    // que continue assim quando isso mudar — uma linha com
+                    // `/etc/asterisk/pjsip.conf` na coluna bastaria.
+                    if (! $caminho->contido($base, $arquivo)) {
+                        $retidas[] = $ligacao;
+                        Log::warning('gravação fora do diretório base; não apago e mantenho a Ligação', [
+                            'ligacao' => $ligacao,
+                            'caminho' => $arquivo,
+                        ]);
+                        continue;
+                    }
+
+                    // Ausente é caso normal, não anomalia: o expurgo já passou por aqui.
+                    if (! is_file($arquivo)) {
+                        continue;
+                    }
+
+                    if (! unlink($arquivo)) {
+                        $retidas[] = $ligacao;
+                        Log::warning('não consegui apagar a gravação; mantenho a Ligação', [
+                            'ligacao' => $ligacao,
+                            'caminho' => $arquivo,
+                        ]);
+                        continue;
+                    }
+
+                    $apagadas++;
+                }
+            });
+
+        return [$apagadas, $retidas];
     }
 
     /**

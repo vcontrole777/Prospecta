@@ -306,6 +306,99 @@ final class ResultadosTest extends TestCase
     // ---------------------------------------------------------------- auxiliares
 
     /** @param list<string> $nomes */
+    /**
+     * O status do Disparo aparece ao lado do Lead, e o botão só onde ele resolve algo.
+     *
+     * Sem esta coluna o operador via "opt_in" e não tinha como saber se a mensagem
+     * chegou — e não chegar é o modo de falha caro, porque a pessoa disse que queria.
+     */
+    #[Test]
+    public function mostra_o_status_do_disparo_e_oferece_reenvio_ao_que_falhou(): void
+    {
+        $falhou = $this->ligacao('5511900000101', 'opt_in', []);
+        $entregue = $this->ligacao('5511900000102', 'opt_in', []);
+
+        $this->disparo($falhou, 'falhou', 'Business eligibility payment issue');
+        $this->disparo($entregue, 'entregue');
+
+        $tela = Livewire::test(Resultados::class, ['id' => $this->campanha]);
+
+        $tela->assertSee('falhou')
+            ->assertSee('entregue')
+            ->assertSee('Business eligibility payment issue')
+            // O botão em massa conta só o que dá para reenviar.
+            ->assertSee('Reenviar 1 Disparo falhado');
+    }
+
+    /**
+     * 🔴 REENVIAR REUSA A LINHA e zera as tentativas.
+     *
+     * `acao` tem `unique(tipo, referencia_id)`, então criar uma segunda Ação para a
+     * mesma Ligação é impossível — e sem zerar `tentativas` o worker a mataria por
+     * esgotamento na volta seguinte, fazendo o botão parecer sem efeito.
+     */
+    #[Test]
+    public function reenviar_devolve_a_acao_para_pendente_com_tentativas_zeradas(): void
+    {
+        $ligacao = $this->ligacao('5511900000103', 'opt_in', []);
+        $acao = $this->disparo($ligacao, 'falhou', 'erro qualquer', tentativas: 3);
+
+        Livewire::test(Resultados::class, ['id' => $this->campanha])->call('reenviar', $acao);
+
+        $depois = DB::table('acao')->where('id', $acao)->first();
+
+        $this->assertSame('pendente', $depois->status);
+        $this->assertSame(0, (int) $depois->tentativas);
+        $this->assertNull($depois->processado_em);
+        $this->assertNull($depois->resposta);
+        $this->assertSame(1, DB::table('acao')->where('referencia_id', $ligacao)->count());
+    }
+
+    /**
+     * Reenviar o que JÁ FOI ENTREGUE mandaria a mesma mensagem duas vezes ao Lead, e a
+     * Cloud API não tem chave de idempotência que nos proteja disso.
+     */
+    #[Test]
+    public function nao_reenvia_disparo_entregue(): void
+    {
+        $ligacao = $this->ligacao('5511900000104', 'opt_in', []);
+        $acao = $this->disparo($ligacao, 'entregue');
+
+        Livewire::test(Resultados::class, ['id' => $this->campanha])->call('reenviar', $acao);
+
+        $this->assertSame('entregue', DB::table('acao')->where('id', $acao)->value('status'));
+    }
+
+    /** Ação de OUTRA Campanha não pode ser reenviada por id digitado à mão. */
+    #[Test]
+    public function nao_reenvia_disparo_de_outra_campanha(): void
+    {
+        $outra = (int) DB::table('campanha')->insertGetId(['tipo' => 'opt_in', 'nome' => 'Outra', 'status' => 1]);
+        $lead = (int) DB::table('leads')->insertGetId([
+            'campanha_id' => $outra, 'telefone' => '5511900000105', 'status' => 3,
+        ]);
+        $ligacao = (int) DB::table('ligacao')->insertGetId([
+            'lead_id' => $lead, 'campanha_id' => $outra, 'numero_tentativa' => 1, 'iniciada_em' => now(),
+        ]);
+        $acao = $this->disparo($ligacao, 'falhou');
+
+        Livewire::test(Resultados::class, ['id' => $this->campanha])->call('reenviar', $acao);
+
+        $this->assertSame('falhou', DB::table('acao')->where('id', $acao)->value('status'));
+    }
+
+    private function disparo(int $ligacaoId, string $status, ?string $resposta = null, int $tentativas = 1): int
+    {
+        return (int) DB::table('acao')->insertGetId([
+            'tipo' => 'disparo',
+            'referencia_id' => $ligacaoId,
+            'status' => $status,
+            'tentativas' => $tentativas,
+            'resposta' => $resposta,
+            'processado_em' => now(),
+        ]);
+    }
+
     private function campos(array $nomes): void
     {
         foreach ($nomes as $i => $nome) {

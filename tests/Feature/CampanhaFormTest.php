@@ -254,4 +254,113 @@ final class CampanhaFormTest extends TestCase
     {
         $this->get(route('campanha.editar', 99999))->assertNotFound();
     }
+
+    /**
+     * 🔴 A CAPTURA PRECISA DA TECLA, e a tela escondia os dois campos.
+     *
+     * O `Fluxo::captura` passou a exigir o mesmo portão do opt-in — Mensagem, tecla, e só
+     * então as perguntas —, mas a tela seguiu com `@if ($tipo === 'opt_in')` em volta das
+     * teclas. Numa Campanha de captura elas eram inalcançáveis e ficavam no default '1'.
+     *
+     * Custou uma Campanha inteira em 21/08/2026: áudio pedindo "digite 2", campo esperando
+     * '1', as 4 pessoas que apertaram algo viraram `invalido`, zero CPF coletado.
+     */
+    #[Test]
+    public function captura_MOSTRA_os_campos_de_tecla_na_tela(): void
+    {
+        // 🔴 RENDERIZAÇÃO, não só a propriedade. O defeito morava na blade — um
+        // `@if ($tipo === 'opt_in')` em volta das teclas —, e `Livewire::test()->set()`
+        // escreve na propriedade direto, então passaria mesmo com os campos escondidos.
+        // Só assertar o HTML pega este bug.
+        Livewire::test(CampanhaForm::class)
+            ->set('tipo', 'captura')
+            ->assertSee('Tecla de opt-in')
+            ->assertSee('Tecla de opt-out')
+            ->assertSee('Confirmação da captura');
+    }
+
+    #[Test]
+    public function opt_in_NAO_mostra_a_confirmacao_da_captura(): void
+    {
+        // O avesso: numa Campanha de opt-in não há fim de coleta para confirmar, e o
+        // retorno já é a "Confirmação de opt-in". Oferecer o campo ali seria campo morto.
+        Livewire::test(CampanhaForm::class)
+            ->set('tipo', 'opt_in')
+            ->assertSee('Tecla de opt-in')
+            ->assertDontSee('Confirmação da captura');
+    }
+
+    #[Test]
+    public function captura_grava_a_tecla_de_opt_in(): void
+    {
+        Livewire::test(CampanhaForm::class)
+            ->set('nome', 'Captura INSS')
+            ->set('tipo', 'captura')
+            ->set('audio_mensagem_id', $this->audio)
+            ->set('tecla_opt_in', '2')
+            ->set('campos', [[
+                'nome' => 'CPF', 'tipo' => 'cpf', 'tamanho' => 11,
+                'audio_prompt_id' => $this->audio, 'obrigatorio' => true,
+                'tentativas' => 2, 'timeout_seg' => 15,
+            ]])
+            ->call('salvar')
+            ->assertHasNoErrors();
+
+        $c = DB::table('campanha')->where('nome', 'Captura INSS')->first();
+        $this->assertNotNull($c);
+        $this->assertSame('captura', $c->tipo);
+        $this->assertSame('2', $c->tecla_opt_in);
+    }
+
+    /**
+     * O "recebi, obrigado" do fim da captura. A coluna e o `Fluxo` existiam desde a
+     * migration; o que faltava era o campo na tela, então nenhuma Campanha conseguia
+     * apontar para o áudio e toda captura terminava muda.
+     */
+    #[Test]
+    public function confirmacao_da_captura_vai_e_volta_da_tela(): void
+    {
+        Livewire::test(CampanhaForm::class)
+            ->set('nome', 'Captura com retorno')
+            ->set('tipo', 'captura')
+            ->set('audio_mensagem_id', $this->audio)
+            ->set('audio_confirma_captura_id', $this->audio)
+            ->set('campos', [[
+                'nome' => 'CPF', 'tipo' => 'cpf', 'tamanho' => 11,
+                'audio_prompt_id' => $this->audio, 'obrigatorio' => true,
+                'tentativas' => 2, 'timeout_seg' => 15,
+            ]])
+            ->call('salvar')
+            ->assertHasNoErrors();
+
+        $c = DB::table('campanha')->where('nome', 'Captura com retorno')->first();
+        $this->assertNotNull($c);
+        $this->assertSame($this->audio, (int) $c->audio_confirma_captura_id);
+
+        // E volta para a tela ao editar: gravar sem recarregar esconderia a escolha do
+        // operador na próxima abertura, que é como um campo "não salva" na prática.
+        Livewire::test(CampanhaForm::class, ['id' => (int) $c->id])
+            ->assertSet('audio_confirma_captura_id', $this->audio);
+    }
+
+    /** Cortesia é opcional: Campanha de captura sem o áudio continua salvando. */
+    #[Test]
+    public function confirmacao_da_captura_e_opcional(): void
+    {
+        Livewire::test(CampanhaForm::class)
+            ->set('nome', 'Captura sem retorno')
+            ->set('tipo', 'captura')
+            ->set('audio_mensagem_id', $this->audio)
+            ->set('campos', [[
+                'nome' => 'CPF', 'tipo' => 'cpf', 'tamanho' => 11,
+                'audio_prompt_id' => $this->audio, 'obrigatorio' => true,
+                'tentativas' => 2, 'timeout_seg' => 15,
+            ]])
+            ->call('salvar')
+            ->assertHasNoErrors();
+
+        $this->assertNull(
+            DB::table('campanha')->where('nome', 'Captura sem retorno')->value('audio_confirma_captura_id'),
+        );
+    }
 }

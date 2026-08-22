@@ -264,15 +264,31 @@ final class ImportarLista extends Component
     }
 
     /**
-     * 🔴 `ON DUPLICATE KEY UPDATE id = id` — no-op deliberado.
+     * 🔴 `ON DUPLICATE KEY UPDATE campanha_id = campanha_id` — no-op deliberado.
      *
      * O UNIQUE(campanha_id, telefone) dá a idempotência no ESQUEMA; isto a torna
      * reentrante sem engolir outros erros, ao contrário de `INSERT IGNORE`, que
      * silencia violação de chave estrangeira e valor fora de faixa junto.
      *
      * O retorno é o número REALMENTE inserido: o MySQL conta 1 por inserção e 0
-     * quando o update não muda nada — e `id = id` nunca muda nada. É daí que sai a
-     * contagem de duplicatas, sem uma segunda consulta.
+     * quando o update não muda nada — e atribuir uma coluna a ela mesma nunca muda
+     * nada. É daí que sai a contagem de duplicatas, sem uma segunda consulta.
+     *
+     * 🔴 NÃO VOLTE PARA `id = id`. O no-op é o mesmo, mas `id` é AUTO_INCREMENT, e o
+     * MySQL 8 recusa `INSERT ... ON DUPLICATE KEY UPDATE` que atribua à coluna
+     * auto-increment quando o LOTE tem duplicata dentro dele:
+     *
+     *     SQLSTATE[HY000]: General error: 1869
+     *     Auto-increment value in UPDATE conflicts with internally generated values
+     *
+     * MEDIDO: lote de 3 linhas com uma repetida quebra; a MESMA instrução linha a
+     * linha passa. É por isso que o defeito não aparecia — os outros usos do idioma
+     * no projeto (`Fastagi\Banco`, `Worker\FilaDeEventos`) inserem uma linha de cada
+     * vez e continuam corretos. Só aqui a inserção é em lote, e só aqui um arquivo com
+     * telefone repetido derrubava a importação inteira com 500.
+     *
+     * `campanha_id` serve porque está no UNIQUE: numa colisão ele já vale o que a
+     * cláusula atribui, então o update não muda nada e a contagem continua exata.
      *
      * @param list<array<string,mixed>> $lote
      */
@@ -295,7 +311,7 @@ final class ImportarLista extends Component
 
         $sql = 'INSERT INTO leads (' . implode(',', $colunas) . ') VALUES '
             . implode(',', $marcadores)
-            . ' ON DUPLICATE KEY UPDATE id = id';
+            . ' ON DUPLICATE KEY UPDATE campanha_id = campanha_id';
 
         return DB::connection()->affectingStatement($sql, $valores);
     }

@@ -11,6 +11,12 @@ projeto ou do dono da Campanha.
 Estes são fixos, do produto, e vivem aqui. Vão para
 `/var/lib/asterisk/sounds/prospecta/` no provisionamento.
 
+São **saída de TTS**, não gravação de voz, e por isso são **versionados** — o
+`.gitignore` barra o resto de `audios/`, que é área de trabalho. Versioná-los fecha
+uma lacuna real: o provisionamento falha quando eles não estão aqui, e antes uma
+instância nova não os recebia. `bin/gerar-abertura.sh` condiciona a saída do TTS ao
+formato e ao teto de duração descritos abaixo.
+
 | Arquivo | Conteúdo | Duração | Usado quando |
 |---|---|---|---|
 | `abertura` | "Alô?" | **~1 s, não mais** | SEMPRE, antes do AMD |

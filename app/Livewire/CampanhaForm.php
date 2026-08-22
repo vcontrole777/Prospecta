@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace App\Livewire;
 
+use App\Seguranca\Cofre;
+use App\Whatsapp\TemplatesAprovados;
+use App\Worker\TransporteCurl;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Throwable;
 
 /**
  * Criar e editar Campanha.
@@ -70,6 +75,12 @@ final class CampanhaForm extends Component
 
     public ?int $audio_confirma_opt_out_id = null;
 
+    /**
+     * O "recebi, obrigado" do fim da captura. SÓ vale para Campanha de captura — ver
+     * `Fluxo::captura`, que o toca depois de gravar `captura_concluida` e só no sucesso.
+     */
+    public ?int $audio_confirma_captura_id = null;
+
     public ?int $audio_nao_entendi_id = null;
 
     public string $canal_opt_in = 'whatsapp';
@@ -77,6 +88,52 @@ final class CampanhaForm extends Component
     public string $template_nome = '';
 
     public string $template_idioma = 'pt_BR';
+
+    /**
+     * O template escolhido na lista, como `nome|idioma`.
+     *
+     * Chave COMPOSTA porque o par é que identifica: a Meta permite o mesmo `name` em
+     * vários idiomas, e são templates distintos. Guardar só o nome deixaria o idioma
+     * ambíguo, que é metade do erro que esta lista existe para eliminar.
+     *
+     * Vazio significa "digitar à mão" — o escape para quando a Meta não responde.
+     */
+    public string $template_escolhido = '';
+
+    /**
+     * Templates aprovados da conta, carregados uma vez no `mount`.
+     *
+     * 🔴 NO MOUNT, não no `render`. O Livewire re-renderiza a cada tecla digitada em
+     * qualquer campo do formulário; buscar aqui seria uma chamada à Graph API por
+     * caractere — lento para o operador e abuso da cota da Meta.
+     *
+     * @var list<array{chave:string, nome:string, idioma:string, parametros:int, corpo:string, rotulo:string}>
+     */
+    public array $templates = [];
+
+    /**
+     * Por que a lista veio vazia, quando veio. Nulo quando está tudo bem.
+     *
+     * Existe para a tela poder dizer a diferença entre "não há template aprovado",
+     * "o token não alcança a conta" e "a Meta está fora do ar" — três causas com
+     * três ações diferentes do operador.
+     */
+    public ?string $templates_erro = null;
+
+    /**
+     * Mostrar os campos de nome e idioma para digitação.
+     *
+     * Falso por padrão: havendo lista, o operador não deve ver campo nenhum — escolher
+     * já preenche os dois. Os campos existem para o caso em que a lista não serve, e
+     * aparecem quando:
+     *
+     *   · não há template aprovado para oferecer (aí não há escolha possível);
+     *   · a Campanha aponta para um template que saiu da lista — recusado, pausado ou
+     *     apagado depois de ela ser criada — e esconder o valor gravado deixaria o
+     *     operador sem saber o que está salvo;
+     *   · ele pediu, pelo link "preencher à mão".
+     */
+    public bool $template_manual = false;
 
     /**
      * Nomes de coluna, NA ORDEM. A posição no template é o índice + 1.
@@ -95,6 +152,10 @@ final class CampanhaForm extends Component
 
     public function mount(?int $id = null): void
     {
+        // Antes do desvio de Campanha nova: a lista serve aos dois casos, e sair
+        // cedo aqui era o que deixava o formulário de criação sem ela.
+        $this->carregarTemplates();
+
         if ($id === null) {
             return;
         }
@@ -124,10 +185,25 @@ final class CampanhaForm extends Component
         $this->audio_mensagem_id = self::inteiroOuNulo($c['audio_mensagem_id'] ?? null);
         $this->audio_confirma_opt_in_id = self::inteiroOuNulo($c['audio_confirma_opt_in_id'] ?? null);
         $this->audio_confirma_opt_out_id = self::inteiroOuNulo($c['audio_confirma_opt_out_id'] ?? null);
+        $this->audio_confirma_captura_id = self::inteiroOuNulo($c['audio_confirma_captura_id'] ?? null);
         $this->audio_nao_entendi_id = self::inteiroOuNulo($c['audio_nao_entendi_id'] ?? null);
         $this->canal_opt_in = self::texto($c['canal_opt_in'] ?? null) ?: 'whatsapp';
         $this->template_nome = self::texto($c['template_nome'] ?? null);
         $this->template_idioma = self::texto($c['template_idioma'] ?? null) ?: 'pt_BR';
+
+        // Pré-seleciona na lista SÓ se o par salvo ainda estiver aprovado. Quando não
+        // estiver — template recusado, pausado ou apagado depois de a Campanha ser
+        // criada — `template_escolhido` fica vazio e a tela cai no campo manual com o
+        // valor antigo visível. É melhor que selecionar em silêncio uma opção que não
+        // existe mais, ou pior, apagar o que o operador tinha gravado.
+        $this->template_escolhido = $this->chaveSeAprovado($this->template_nome, $this->template_idioma);
+
+        // Campanha que já aponta para um template fora da lista abre no modo manual, com
+        // o valor gravado à vista. O contrário — esconder — deixaria a tela parecendo
+        // "sem template" para uma Campanha que tem um, e salvar recriaria o problema.
+        if ($this->template_escolhido === '' && $this->template_nome !== '') {
+            $this->template_manual = true;
+        }
 
         $this->tipo = self::texto($c['tipo'] ?? null) === 'captura' ? 'captura' : 'opt_in';
 
@@ -291,6 +367,7 @@ final class CampanhaForm extends Component
             'audio_mensagem_id' => $this->audio_mensagem_id,
             'audio_confirma_opt_in_id' => $this->audio_confirma_opt_in_id,
             'audio_confirma_opt_out_id' => $this->audio_confirma_opt_out_id,
+            'audio_confirma_captura_id' => $this->audio_confirma_captura_id,
             'audio_nao_entendi_id' => $this->audio_nao_entendi_id,
             'canal_opt_in' => $this->canal_opt_in,
             'template_nome' => trim($this->template_nome) === '' ? null : trim($this->template_nome),
@@ -420,6 +497,9 @@ final class CampanhaForm extends Component
             'audio_mensagem_id' => ['nullable', 'integer', 'exists:audio,id'],
             'audio_confirma_opt_in_id' => ['nullable', 'integer', 'exists:audio,id'],
             'audio_confirma_opt_out_id' => ['nullable', 'integer', 'exists:audio,id'],
+            // NULLABLE de propósito: é cortesia. Campanha sem ele funciona igual, e o
+            // `Fluxo::tocarCortesia` já trata ausência sem tocar no desfecho.
+            'audio_confirma_captura_id' => ['nullable', 'integer', 'exists:audio,id'],
             'audio_nao_entendi_id' => ['nullable', 'integer', 'exists:audio,id'],
 
             'canal_opt_in' => ['required', 'in:whatsapp,sms'],
@@ -476,6 +556,149 @@ final class CampanhaForm extends Component
             'template_nome' => 'nome do template',
             'template_idioma' => 'idioma do template',
         ];
+    }
+
+    /**
+     * Busca os templates aprovados da conta e guarda em `$templates`.
+     *
+     * Não lança: qualquer falha vira `$templates_erro` e a tela cai no campo manual.
+     * Uma Campanha não pode ficar impossível de criar porque a Graph API está fora do
+     * ar — é a mesma disciplina do `Descoberta`.
+     */
+    private function carregarTemplates(): void
+    {
+        $cred = $this->credenciaisWhatsapp();
+
+        if ($cred === null) {
+            $this->templates_erro = 'Nenhuma integração de WhatsApp ativa. '
+                . 'Cadastre-a em Integrações para escolher o template de uma lista.';
+
+            return;
+        }
+
+        try {
+            $r = (new TemplatesAprovados(new TransporteCurl(15)))
+                ->listar($cred['token'], $cred['waba_id']);
+        } catch (Throwable $e) {
+            // O operador não precisa da exceção, precisa de conseguir criar a Campanha.
+            Log::warning('falha ao listar templates do WhatsApp', ['erro' => $e->getMessage()]);
+            $this->templates_erro = 'Não consegui consultar os templates agora. '
+                . 'Preencha nome e idioma à mão.';
+
+            return;
+        }
+
+        $this->templates = $r['templates'];
+        $this->templates_erro = $r['erro'];
+    }
+
+    /**
+     * Credenciais do canal de WhatsApp, ou nulo quando não há canal utilizável.
+     *
+     * Lê pela mesma junção que o worker usa (`FilaDeAcoes::credenciaisWhatsapp`), para
+     * a tela não oferecer template de uma conta da qual o Disparo não conseguiria enviar.
+     *
+     * @return array{token:string, waba_id:string}|null
+     */
+    private function credenciaisWhatsapp(): ?array
+    {
+        $coluna = DB::table('configuracao as cfg')
+            ->join('integracao as i', 'i.id', '=', 'cfg.integracao_whatsapp_id')
+            ->where('cfg.id', 1)
+            ->where('i.ativo', 1)
+            ->value('i.credenciais');
+
+        if (! is_string($coluna)) {
+            return null;
+        }
+
+        try {
+            $chave = config('app.key');
+            $cred = (new Cofre(is_string($chave) ? $chave : ''))->decifrarDaColuna($coluna);
+        } catch (Throwable $e) {
+            Log::warning('credencial do WhatsApp ilegível no formulário de Campanha', ['erro' => $e->getMessage()]);
+
+            return null;
+        }
+
+        $token = self::texto($cred['token'] ?? null);
+
+        return $token === ''
+            ? null
+            : ['token' => $token, 'waba_id' => self::texto($cred['waba_id'] ?? null)];
+    }
+
+    /**
+     * A chave `nome|idioma` quando esse par está entre os aprovados; string vazia se não.
+     */
+    private function chaveSeAprovado(string $nome, string $idioma): string
+    {
+        foreach ($this->templates as $t) {
+            if ($t['nome'] === $nome && $t['idioma'] === $idioma) {
+                return $t['chave'];
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Escolher na lista preenche nome E idioma. É o ponto da mudança: o par vem colado,
+     * então não há como salvar um nome certo com o idioma errado.
+     *
+     * O gancho do Livewire dispara com `wire:model.live` no select.
+     */
+    public function updatedTemplateEscolhido(string $valor): void
+    {
+        if (trim($valor) === '') {
+            return;   // "digitar à mão": preserva o que já estiver nos campos
+        }
+
+        foreach ($this->templates as $t) {
+            if ($t['chave'] === $valor) {
+                $this->template_nome = $t['nome'];
+                $this->template_idioma = $t['idioma'];
+
+                return;
+            }
+        }
+    }
+
+    /**
+     * Alterna para digitação à mão, largando a escolha da lista.
+     *
+     * Limpa `template_escolhido` porque os dois modos não podem valer ao mesmo tempo:
+     * um select preenchido junto de campos editados seria dois valores para o mesmo
+     * fato, e o próximo `updatedTemplateEscolhido` sobrescreveria o que foi digitado.
+     */
+    public function preencherAMao(): void
+    {
+        $this->template_manual = true;
+        $this->template_escolhido = '';
+    }
+
+    /**
+     * Volta a escolher da lista, descartando o que estiver digitado.
+     */
+    public function escolherDaLista(): void
+    {
+        $this->template_manual = false;
+    }
+
+    /**
+     * O template escolhido agora, para a tela mostrar corpo e nº de parâmetros.
+     *
+     * @return array{chave:string, nome:string, idioma:string, parametros:int, corpo:string, rotulo:string}|null
+     */
+    public function getTemplateAtualProperty(): ?array
+    {
+        foreach ($this->templates as $t) {
+            if ($t['chave'] === $this->template_escolhido) {
+                return $t;
+            }
+        }
+
+        return null;
     }
 
     /** @return list<array{id:int, nome:string}> */

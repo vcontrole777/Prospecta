@@ -125,11 +125,14 @@ final class FluxoTest extends TestCase
     }
 
     /** @param 'opt_in'|'captura' $tipo */
+    /** @param list<string>|null $amd */
     private function dados(
         string $tipo = 'opt_in',
         int $tentativas = 2,
         bool $gravar = true,
         ?string $audioMensagem = 'prospecta/mensagem',
+        bool $classificadorPosAtivo = true,
+        ?array $amd = null,
     ): Dados {
         return new Dados(
             ligacaoId: 4242,
@@ -138,6 +141,7 @@ final class FluxoTest extends TestCase
             audioMensagem: $audioMensagem,
             audioConfirmaOptIn: 'prospecta/optin',
             audioConfirmaOptOut: 'prospecta/optout',
+            audioConfirmaCaptura: 'prospecta/recebi',
             audioNaoEntendi: 'prospecta/naoentendi',
             teclaOptIn: '2',
             teclaOptOut: '9',
@@ -149,6 +153,8 @@ final class FluxoTest extends TestCase
                 'audio' => 'prospecta/pedecpf', 'obrigatorio' => true,
                 'tentativas' => 2, 'timeoutSeg' => 15,
             ]] : [],
+            classificadorPosAtivo: $classificadorPosAtivo,
+            amd: $amd ?? ['6000', '4000', '800', '5000', '100', '50', '3', '256', '5000'],
         );
     }
 
@@ -326,11 +332,99 @@ final class FluxoTest extends TestCase
     {
         [$r] = $this->rodar([
             ...$this->ate_amd('HUMAN'),
-            '200 result=52998224725',
+            // 🔴 A TECLA DE OPT-IN VEM ANTES DO CPF. A captura passou a exigir o mesmo
+            // portão do opt_in: Mensagem → tecla → só então as perguntas. Pedir documento
+            // a quem não ouviu a oferta e não concordou é pedir sem autorização.
+            '200 result=2',            // GET DATA -> tecla de opt-in
+            self::OK,                  // Playback do áudio de confirmação
+            '200 result=1 (SUCCESS)',  // PLAYBACKSTATUS
+            '200 result=52998224725',  // GET DATA -> o CPF
+            self::OK,                  // Playback do "recebi, obrigado"
+            '200 result=1 (SUCCESS)',  // PLAYBACKSTATUS
         ], $this->dados('captura'));
 
         $this->assertSame('captura_concluida', $r->desfecho);
         $this->assertSame(['cpf' => '52998224725'], $r->respostas);
+        // O Opt-in é ETAPA na captura, não desfecho — mas a tecla fica registrada.
+        $this->assertSame('2', $r->teclaDigitada);
+    }
+
+    /**
+     * Chave desligada: o `AMD` não é executado, `amd_status` fica NULO e o fluxo segue
+     * como humano. Nulo é "não classificamos", distinto de `NOTSURE`, que é
+     * "classificamos e não deu para decidir" — misturar os dois na mesma coluna estragaria
+     * a comparação entre baldes, que é a análise que o classificador existe para alimentar.
+     */
+    #[Test]
+    public function classificador_desligado_nao_executa_o_AMD(): void
+    {
+        [$r, $comandos] = $this->rodar([
+            self::OK,                  // ANSWER
+            self::OK,                  // MixMonitor
+            self::OK,                  // Playback abertura
+            '200 result=1 (SUCCESS)',  // PLAYBACKSTATUS
+            self::OK,                  // WaitForSilence — direto, sem AMD no meio
+            '200 result=2',            // GET DATA -> tecla de opt-in
+            self::OK,
+            '200 result=1 (SUCCESS)',
+        ], $this->dados(classificadorPosAtivo: false));
+
+        $this->assertSame('opt_in', $r->desfecho);
+        $this->assertNull($r->amdStatus);
+        $this->assertNull($r->amdCause);
+
+        foreach ($comandos as $c) {
+            $this->assertStringNotContainsString('AMD', $c);
+        }
+    }
+
+    #[Test]
+    public function classificador_ligado_executa_o_AMD_com_os_parametros_recebidos(): void
+    {
+        // Os nove parâmetros são posicionais e vêm da `configuracao`. Trocar duas posições
+        // não dá erro, dá classificação errada em silêncio — por isso o teste confere a
+        // linha inteira, não só a presença do comando.
+        [, $comandos] = $this->rodar(
+            $this->ate_amd('MACHINE'),
+            $this->dados(amd: ['2500', '1500', '800', '5000', '100', '50', '2', '256', '5000']),
+        );
+
+        $this->assertContains('EXEC AMD "2500,1500,800,5000,100,50,2,256,5000"', $comandos);
+    }
+
+    #[Test]
+    public function desligar_no_meio_da_captura_NAO_vira_opt_in(): void
+    {
+        // 🔴 Regressão medida em produção 21/08/2026: o portão grava `opt_in` como valor
+        // transitório, e o `CanalMorto` do desligamento pulava por cima da sobrescrita do
+        // fim de `captura()`. O desfecho ficava `opt_in` numa Campanha de captura, e o
+        // `Banco::gravar` — que decide tudo por `desfecho === 'opt_in'` — criava Disparo
+        // numa Campanha sem template e carimbava `leads.opt_in_em`, aposentando para
+        // sempre quem não entregou dado nenhum. Foram 5 Leads perdidos para 1 captura boa.
+        $arreio = new ArreioAgi([
+            ...$this->ate_amd('HUMAN'),
+            '200 result=2',            // tecla de opt-in: o portão abre
+            self::OK,
+            '200 result=1 (SUCCESS)',
+            '511 Command Not Permitted on a dead channel',   // desligou no prompt do CPF
+        ]);
+        $r = new Resultado();
+
+        try {
+            (new Fluxo($arreio->agi, new Registro($this->log, 4242)))
+                ->executar($this->dados('captura'), $r);
+            $this->fail('devia ter lançado CanalMorto');
+        } catch (\App\Fastagi\CanalMorto) {
+            // É assim que o `fastagi.php` recebe o desligamento: exceção capturada, e o
+            // `Resultado` parcial segue para a FASE 4. O que a FASE 4 vê é o que importa.
+        }
+
+        $this->assertSame('captura_parcial', $r->desfecho);
+        $this->assertNotSame('opt_in', $r->desfecho);
+        $this->assertSame([], $r->respostas);
+        // A tecla continua registrada: ela aconteceu, e é o que diz que a pessoa ouviu a
+        // oferta e concordou antes de desistir na hora do documento.
+        $this->assertSame('2', $r->teclaDigitada);
     }
 
     #[Test]
@@ -341,12 +435,23 @@ final class FluxoTest extends TestCase
         // dele nem o custo da chamada de API.
         [$r] = $this->rodar([
             ...$this->ate_amd('HUMAN'),
+            '200 result=2',             // tecla de opt-in
+            self::OK,
+            '200 result=1 (SUCCESS)',
             '200 result=11111111111',   // repetido: passa o módulo 11 mas não é CPF
             '200 result=52998224724',   // dígito verificador errado
         ], $this->dados('captura'));
 
         $this->assertSame('captura_parcial', $r->desfecho);
         $this->assertSame([], $r->respostas);
+
+        // 🔴 O QUE FOI DIGITADO FICA. Antes o valor reprovado era descartado e a tela
+        // mostrava célula vazia: o operador não sabia se a pessoa errou o dígito
+        // verificador, digitou pouco, ou digitou o documento de outra pessoa.
+        $this->assertSame(
+            ['cpf' => ['11111111111', '52998224724']],
+            $r->tentativasInvalidas,
+        );
     }
 
     #[Test]
