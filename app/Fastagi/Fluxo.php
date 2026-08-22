@@ -92,7 +92,7 @@ final class Fluxo
             return true;
         }
 
-        $this->agi->executar('AMD', ...$d->amd);
+        $this->agi->executar('AMD', ...$d->pos->argumentos());
         $r->amdStatus = $this->agi->variavel('AMDSTATUS');
         $r->amdCause = $this->agi->variavel('AMDCAUSE');
         $this->log->linha('amd', 'classificado', ['status' => $r->amdStatus, 'causa' => $r->amdCause]);

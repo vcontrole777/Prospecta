@@ -107,39 +107,44 @@
             @endif
 
             @if ($classificador_pos_ativo)
-                {{-- 🔴 Os três primeiros são os que a validação cruzada compara com a
-                     análise total. Ficam na primeira linha, juntos e nessa ordem, para que
-                     a relação entre eles seja visível ANTES de alguém salvar. --}}
+                {{-- 🔴 Rótulo, mínimo e máximo vêm de `App\Dominio\PosAtendimento`, os
+                     MESMOS que a validação usa. Escritos à mão aqui, o input aceitava um
+                     teto e a regra outro, e o MySQL truncava no meio — o operador via um
+                     número na tela e o classificador recebia outro.
+
+                     A ORDEM da tela não é a ordem posicional do AMD, e é de propósito: a
+                     análise total e os critérios medidos contra ela ficam juntos na
+                     primeira linha, para a relação ser visível ANTES de alguém salvar. --}}
+                @php
+                    $pp = [];
+                    foreach ($posParametros as $p) { $pp[$p->coluna] = $p; }
+                    $campo = fn (string $c) => $pp[$c];
+                @endphp
+
                 <div class="grid gap-4 sm:grid-cols-2">
-                    <x-input label="Análise total (ms)" wire:model="pos_analise_total_ms"
-                             type="number" min="100" max="65535" class="num" />
-                    <x-input label="Silêncio inicial (ms)" wire:model="pos_silencio_inicial_ms"
-                             type="number" min="100" max="65535" class="num" />
-                    <x-input label="Saudação máxima (ms)" wire:model="pos_saudacao_max_ms"
-                             type="number" min="100" max="65535" class="num" />
-                    <x-input label="Palavra máxima (ms)" wire:model="pos_palavra_max_ms"
-                             type="number" min="100" max="65535" class="num" />
+                    @foreach (['pos_analise_total_ms', 'pos_silencio_inicial_ms', 'pos_saudacao_max_ms', 'pos_palavra_max_ms'] as $c)
+                        <x-input :label="\App\Dominio\PosAtendimento::etiqueta($campo($c))"
+                                 wire:model="{{ $c }}" type="number"
+                                 min="{{ $campo($c)->minimo }}" max="{{ $campo($c)->maximo }}" class="num" />
+                    @endforeach
                 </div>
 
                 <p class="text-sm text-warning">
-                    Silêncio inicial, saudação máxima e palavra máxima precisam ser MENORES
-                    que a análise total. Um critério que pede mais tempo do que o orçamento
-                    da análise nunca é alcançado — e isso não gera erro nenhum: a
-                    classificação volta sem decisão, a Mensagem toca do mesmo jeito, e a
-                    causa fica invisível.
+                    {{ implode(' e ', $posRotulosDaAnalise) }} precisam ser MENORES que a
+                    análise total. Um critério que pede mais tempo do que o orçamento da
+                    análise nunca é alcançado — e isso não gera erro nenhum: a classificação
+                    volta sem decisão, a Mensagem toca do mesmo jeito, e a causa fica
+                    invisível. A palavra máxima fica FORA desta conta de propósito: ela não
+                    é um prazo a vencer, e o próprio Asterisk a entrega igual à análise
+                    total no arquivo de fábrica.
                 </p>
 
                 <div class="grid gap-4 sm:grid-cols-3">
-                    <x-input label="Silêncio após a saudação (ms)" wire:model="pos_silencio_apos_saudacao_ms"
-                             type="number" min="100" max="65535" class="num" />
-                    <x-input label="Palavra mínima (ms)" wire:model="pos_palavra_min_ms"
-                             type="number" min="10" max="65535" class="num" />
-                    <x-input label="Silêncio entre palavras (ms)" wire:model="pos_silencio_entre_palavras_ms"
-                             type="number" min="10" max="65535" class="num" />
-                    <x-input label="Máximo de palavras" wire:model="pos_palavras_max"
-                             type="number" min="1" max="255" class="num" />
-                    <x-input label="Limiar de silêncio" wire:model="pos_limiar_silencio"
-                             type="number" min="1" max="65535" class="num" />
+                    @foreach (['pos_silencio_apos_saudacao_ms', 'pos_palavra_min_ms', 'pos_silencio_entre_palavras_ms', 'pos_palavras_max', 'pos_limiar_silencio'] as $c)
+                        <x-input :label="\App\Dominio\PosAtendimento::etiqueta($campo($c))"
+                                 wire:model="{{ $c }}" type="number"
+                                 min="{{ $campo($c)->minimo }}" max="{{ $campo($c)->maximo }}" class="num" />
+                    @endforeach
                 </div>
 
                 <p class="text-sm text-base-content/60">

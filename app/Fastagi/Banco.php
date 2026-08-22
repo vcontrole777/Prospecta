@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Fastagi;
 
+use App\Dominio\PosAtendimento;
 use PDO;
 
 /**
@@ -158,7 +159,7 @@ final class Banco
             teclaOptIn: self::texto($linha['tecla_opt_in'] ?? null),
             teclaOptOut: self::texto($linha['tecla_opt_out'] ?? null),
             tentativasUra: self::numero($linha['tentativas_ura'] ?? null),
-            gravacaoAtiva: self::numero($linha['gravacao_ativa'] ?? null) === 1,
+            gravacaoAtiva: self::numeroOuNulo($linha['gravacao_ativa'] ?? null) === 1,
             gravacaoDir: $gravacaoDir,
             campos: $this->campos($ligacaoId, $audioDir),
             // 🔴 `!== 0` e não `=== 1`, ao contrário da gravação logo acima. A diferença
@@ -168,47 +169,14 @@ final class Banco
             // entrega a Mensagem inteira a secretárias eletrônicas sem que ninguém tenha
             // decidido isso. Ausência de configuração não é permissão para mudar o
             // comportamento do produto.
-            classificadorPosAtivo: self::numero($linha['classificador_pos_ativo'] ?? null) !== 0,
-            amd: self::parametrosDoPos($linha),
+            //
+            // 🔴 E isto SÓ FUNCIONA com `numeroOuNulo`. Com o antigo `numero`, que
+            // devolvia `0` para ausência, `!== 0` dava FALSO e o classificador degradava
+            // para DESLIGADO — o oposto exato do parágrafo acima, no arquivo em que o
+            // parágrafo está escrito.
+            classificadorPosAtivo: self::numeroOuNulo($linha['classificador_pos_ativo'] ?? null) !== 0,
+            pos: PosAtendimento::deLinha($linha),
         );
-    }
-
-    /**
-     * Os nove parâmetros do Pós-atendimento, na ORDEM POSICIONAL do `AMD()` do Asterisk.
-     *
-     * A ordem é contrato com o Asterisk, não escolha nossa: trocar duas posições não dá
-     * erro, dá classificação errada em silêncio. Por isso a lista é montada num lugar só,
-     * com o nome de cada parâmetro ao lado do seu posto.
-     *
-     * Coluna nula cai no default do `Dados` para aquele posto — a linha de `configuracao`
-     * pode não existir, e o `LEFT JOIN` traz tudo nulo quando isso acontece.
-     *
-     * @param array<string,mixed> $linha
-     * @return list<string>
-     */
-    private static function parametrosDoPos(array $linha): array
-    {
-        $padrao = ['6000', '4000', '800', '5000', '100', '50', '3', '256', '5000'];
-
-        $colunas = [
-            'pos_silencio_inicial_ms',          // 1 initialSilence
-            'pos_saudacao_max_ms',              // 2 greeting
-            'pos_silencio_apos_saudacao_ms',    // 3 afterGreetingSilence
-            'pos_analise_total_ms',             // 4 totalAnalysisTime
-            'pos_palavra_min_ms',               // 5 minimumWordLength
-            'pos_silencio_entre_palavras_ms',   // 6 betweenWordsSilence
-            'pos_palavras_max',                 // 7 maximumNumberOfWords
-            'pos_limiar_silencio',              // 8 silenceThreshold
-            'pos_palavra_max_ms',               // 9 maximumWordLength
-        ];
-
-        $saida = [];
-        foreach ($colunas as $i => $coluna) {
-            $valor = self::numero($linha[$coluna] ?? null);
-            $saida[] = $valor === null ? $padrao[$i] : (string) $valor;
-        }
-
-        return $saida;
     }
 
     /**
@@ -386,6 +354,19 @@ final class Banco
     private static function numero(mixed $v): int
     {
         return is_numeric($v) ? (int) $v : 0;
+    }
+
+    /**
+     * Como `numero`, mas capaz de dizer "a coluna não disse nada".
+     *
+     * `numero` colapsa ausência e zero literal no mesmo valor, e isso obrigava cada
+     * chamador a reinventar a degradação: um comparava `=== 1`, outro `!== 0`, um
+     * terceiro `=== null` — e este último era código morto, porque `numero` nunca
+     * devolvia `null`. Ver a nota sobre o classificador em `carregar`.
+     */
+    private static function numeroOuNulo(mixed $v): ?int
+    {
+        return is_numeric($v) ? (int) $v : null;
     }
 
     private function caminho(string $dir, ?string $arquivo): ?string

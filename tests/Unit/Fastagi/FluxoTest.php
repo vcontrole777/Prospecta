@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Fastagi;
 
+use App\Dominio\PosAtendimento;
 use App\Fastagi\Dados;
 use App\Fastagi\CanalMorto;
 use App\Fastagi\Fluxo;
@@ -124,15 +125,22 @@ final class FluxoTest extends TestCase
         }
     }
 
-    /** @param 'opt_in'|'captura' $tipo */
-    /** @param list<string>|null $amd */
+    /**
+     * 🔴 UM docblock só, e é o conserto de um erro do PHPStan.
+     *
+     * Havia dois `/** *\/` seguidos aqui. Só o último vale, então a anotação de `$tipo`
+     * era descartada em silêncio e o `string` cru chegava ao construtor, que aceita
+     * `'opt_in'|'captura'`.
+     *
+     * @param 'opt_in'|'captura' $tipo
+     */
     private function dados(
         string $tipo = 'opt_in',
         int $tentativas = 2,
         bool $gravar = true,
         ?string $audioMensagem = 'prospecta/mensagem',
         bool $classificadorPosAtivo = true,
-        ?array $amd = null,
+        ?PosAtendimento $pos = null,
     ): Dados {
         return new Dados(
             ligacaoId: 4242,
@@ -154,7 +162,7 @@ final class FluxoTest extends TestCase
                 'tentativas' => 2, 'timeoutSeg' => 15,
             ]] : [],
             classificadorPosAtivo: $classificadorPosAtivo,
-            amd: $amd ?? ['6000', '4000', '800', '5000', '100', '50', '3', '256', '5000'],
+            pos: $pos,
         );
     }
 
@@ -386,7 +394,11 @@ final class FluxoTest extends TestCase
         // linha inteira, não só a presença do comando.
         [, $comandos] = $this->rodar(
             $this->ate_amd('MACHINE'),
-            $this->dados(amd: ['2500', '1500', '800', '5000', '100', '50', '2', '256', '5000']),
+            $this->dados(pos: PosAtendimento::padrao()->com([
+                'pos_silencio_inicial_ms' => 2500,
+                'pos_saudacao_max_ms' => 1500,
+                'pos_palavras_max' => 2,
+            ])),
         );
 
         $this->assertContains('EXEC AMD "2500,1500,800,5000,100,50,2,256,5000"', $comandos);

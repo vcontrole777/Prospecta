@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire;
 
 use App\Dialer\Janela;
+use App\Dominio\PosAtendimento;
 use DateTimeImmutable;
 use DateTimeZone;
 use Illuminate\Contracts\View\View;
@@ -75,43 +76,15 @@ final class Configuracao extends Component
 
     public int $pos_palavra_max_ms = 5000;
 
-    /**
-     * Critérios cujo relógio corre DENTRO do orçamento da análise: se pedirem mais tempo
-     * que ele, nunca são alcançados.
+    /*
+     * As duas constantes que moravam aqui — a lista dos nove parâmetros e a dos
+     * critérios medidos contra a análise total — foram para `App\Dominio\PosAtendimento`.
      *
-     * 🔴 `pos_palavra_max_ms` está FORA desta lista de propósito. O Asterisk entrega
-     * `maximum_word_length` e `total_analysis_time` iguais em 5000 no `amd.conf` de
-     * fábrica, e ele não é um prazo a vencer: é o tamanho a partir do qual uma única
-     * elocução conta como máquina. Recusar 5000/5000 seria recusar o padrão do
-     * fornecedor, que é como uma validação zelosa demais vira obstáculo.
-     *
-     * @var array<string,string>
+     * Não por arrumação: elas descreviam o MESMO conjunto que o `Fastagi\Banco` montava
+     * com outra lista, e as duas listas não tinham como se conferir. A tela e o handler
+     * agora leem a mesma declaração, que é o que o ADR-0006 exige de uma regra que roda
+     * nos dois lugares.
      */
-    public const CRITERIOS_DENTRO_DA_ANALISE = [
-        'pos_silencio_inicial_ms' => 'silêncio inicial',
-        'pos_saudacao_max_ms' => 'saudação máxima',
-    ];
-
-    /**
-     * Os campos numéricos do Pós-atendimento, com o padrão a que cada um corresponde.
-     *
-     * Existe como lista para que carregar, gravar e validar percorram a MESMA fonte —
-     * três listas escritas à mão divergiriam, e o campo esquecido numa delas não daria
-     * erro: daria um parâmetro que a tela mostra e o classificador ignora.
-     *
-     * @var array<string,string>
-     */
-    public const PARAMETROS_POS = [
-        'pos_silencio_inicial_ms' => 'silêncio inicial',
-        'pos_saudacao_max_ms' => 'saudação máxima',
-        'pos_silencio_apos_saudacao_ms' => 'silêncio após a saudação',
-        'pos_analise_total_ms' => 'análise total',
-        'pos_palavra_min_ms' => 'palavra mínima',
-        'pos_silencio_entre_palavras_ms' => 'silêncio entre palavras',
-        'pos_palavras_max' => 'máximo de palavras',
-        'pos_limiar_silencio' => 'limiar de silêncio',
-        'pos_palavra_max_ms' => 'palavra máxima',
-    ];
 
     /** @var array<int,string> */
     public const DIAS = [
@@ -146,14 +119,11 @@ final class Configuracao extends Component
 
         $this->classificador_pos_ativo = (bool) ($c['classificador_pos_ativo'] ?? true);
 
-        // `inteiro()` devolve 0 para nulo e para lixo. Zero não é valor válido para
-        // nenhum destes parâmetros, então ele significa "a coluna não disse nada" — e aí
-        // o default da propriedade fica, que é o comportamento de antes desta tela.
-        foreach (array_keys(self::PARAMETROS_POS) as $campo) {
-            $valor = self::inteiro($c[$campo] ?? null);
-            if ($valor > 0) {
-                $this->{$campo} = $valor;
-            }
+        // Coluna que não disse nada cai no default do parâmetro — a regra de "não
+        // positivo é ausência" mora em `PosAtendimento::deLinha`, não aqui.
+        $pos = PosAtendimento::deLinha($c);
+        foreach (PosAtendimento::parametros() as $p) {
+            $this->{$p->coluna} = $pos->valor($p->coluna);
         }
     }
 
@@ -163,14 +133,21 @@ final class Configuracao extends Component
         $fuso = new DateTimeZone(self::texto(config('app.timezone')) ?: 'UTC');
         $agora = new DateTimeImmutable('now', $fuso);
 
+        // 🔴 UMA leitura da linha, não quatro. `salvar` chamava `mexeuNoCriterio` uma
+        // vez por critério, cada uma com seu `first()`, e `render` fazia mais duas — uma
+        // delas um `value()` cujo retorno `mixed` era o erro `cast.int` do PHPStan.
+        $linha = $this->linhaGravada();
+        $gravado = PosAtendimento::deLinha($linha);
+
         return view('livewire.configuracao', [
             'descricao' => $janela->descricao(),
             'abertaAgora' => $janela->aberta($agora),
             'agora' => $agora->format('D, d/m H:i'),
             'fuso' => $fuso->getName(),
-            'posMortos' => $this->posInvalidoGravado(),
-            'posAnaliseTotalGravado' => (int) DB::table('configuracao')
-                ->where('id', 1)->value('pos_analise_total_ms'),
+            'posMortos' => $this->posInvalidoGravado($linha),
+            'posAnaliseTotalGravado' => $gravado->valor('pos_analise_total_ms'),
+            'posRotulosDaAnalise' => PosAtendimento::rotulosDentroDaAnalise(),
+            'posParametros' => PosAtendimento::parametros(),
         ]);
     }
 
@@ -186,19 +163,7 @@ final class Configuracao extends Component
             'dias_semana.*' => ['integer', 'between:1,7'],
             'gravacao_retencao_dias' => ['required', 'integer', 'min:1', 'max:3650'],
 
-            // `max:65535` é o teto do SMALLINT UNSIGNED das colunas. Deixar o formulário
-            // aceitar mais faria o MySQL truncar em silêncio, e o operador veria um número
-            // na tela e outro no classificador.
-            'pos_silencio_inicial_ms' => ['required', 'integer', 'min:100', 'max:65535'],
-            'pos_saudacao_max_ms' => ['required', 'integer', 'min:100', 'max:65535'],
-            'pos_silencio_apos_saudacao_ms' => ['required', 'integer', 'min:100', 'max:65535'],
-            'pos_analise_total_ms' => ['required', 'integer', 'min:100', 'max:65535'],
-            'pos_palavra_min_ms' => ['required', 'integer', 'min:10', 'max:65535'],
-            'pos_silencio_entre_palavras_ms' => ['required', 'integer', 'min:10', 'max:65535'],
-            'pos_palavras_max' => ['required', 'integer', 'min:1', 'max:255'],
-            'pos_limiar_silencio' => ['required', 'integer', 'min:1', 'max:65535'],
-            'pos_palavra_max_ms' => ['required', 'integer', 'min:100', 'max:65535'],
-        ], [
+        ] + $this->regrasDoPos(), [
             'horario_inicio.required_with' => 'Preencha os dois horários, ou deixe os dois em branco.',
             'horario_fim.required_with' => 'Preencha os dois horários, ou deixe os dois em branco.',
             'horario_inicio.date_format' => 'Use o formato 24 h, como 09:00.',
@@ -222,10 +187,10 @@ final class Configuracao extends Component
          * empatar com o orçamento é a mesma coisa que estourá-lo, porque o relógio para
          * ao ATINGIR o total.
          */
-        foreach (self::CRITERIOS_DENTRO_DA_ANALISE as $campo => $rotulo) {
-            if ($this->{$campo} < $this->pos_analise_total_ms) {
-                continue;
-            }
+        $linhaGravada = $this->linhaGravada();
+        $proposto = PosAtendimento::padrao()->com($this->valoresDoFormulario());
+
+        foreach ($proposto->criteriosMortos() as $campo => $rotulo) {
 
             // 🔴 NÃO BLOQUEIA DEFEITO HERDADO, só a introdução de um novo.
             //
@@ -235,7 +200,7 @@ final class Configuracao extends Component
             // outra pessoa deixou ali. Defeito preexistente vira AVISO permanente na
             // tela — ver `posInvalidoGravado()` e a blade —, e continua chamando
             // atenção sem sequestrar o resto da configuração.
-            if (! $this->mexeuNoCriterio($campo)) {
+            if (! $this->mexeuNoCriterio($campo, $linhaGravada)) {
                 continue;
             }
 
@@ -265,10 +230,7 @@ final class Configuracao extends Component
             'gravacao_ativa' => $this->gravacao_ativa ? 1 : 0,
             'gravacao_retencao_dias' => $this->gravacao_retencao_dias,
             'classificador_pos_ativo' => $this->classificador_pos_ativo ? 1 : 0,
-        ] + array_combine(
-            array_keys(self::PARAMETROS_POS),
-            array_map(fn (string $c): int => $this->{$c}, array_keys(self::PARAMETROS_POS)),
-        ));
+        ] + PosAtendimento::padrao()->com($this->valoresDoFormulario())->paraColunas());
 
         session()->flash('recado', 'Configuração salva. O dialer reavalia o horário a cada volta.');
     }
@@ -279,37 +241,74 @@ final class Configuracao extends Component
      * Mexer no critério ou no orçamento conta igual: os dois mudam a comparação, e quem
      * baixa a análise total até engolir o silêncio inicial introduziu o mesmo defeito de
      * quem subiu o silêncio inicial.
+     *
+     * @param array<string,mixed> $c a linha de `configuracao`, lida uma vez pelo chamador
      */
-    private function mexeuNoCriterio(string $campo): bool
+    private function mexeuNoCriterio(string $campo, array $c): bool
     {
-        $c = (array) (DB::table('configuracao')->where('id', 1)->first() ?? []);
-
-        return (int) ($c[$campo] ?? 0) !== $this->{$campo}
-            || (int) ($c['pos_analise_total_ms'] ?? 0) !== $this->pos_analise_total_ms;
+        return self::inteiro($c[$campo] ?? null) !== $this->{$campo}
+            || self::inteiro($c['pos_analise_total_ms'] ?? null) !== $this->pos_analise_total_ms;
     }
 
     /**
      * Há combinação inválida JÁ GRAVADA? A tela avisa em vez de calar.
      *
+     * @param array<string,mixed> $c a linha de `configuracao`, lida uma vez pelo chamador
      * @return list<string> os rótulos dos critérios que nunca são alcançados
      */
-    private function posInvalidoGravado(): array
+    private function posInvalidoGravado(array $c): array
     {
-        $c = (array) (DB::table('configuracao')->where('id', 1)->first() ?? []);
-        $total = (int) ($c['pos_analise_total_ms'] ?? 0);
-
-        if ($total <= 0 || (int) ($c['classificador_pos_ativo'] ?? 1) === 0) {
+        if (self::inteiro($c['classificador_pos_ativo'] ?? 1) === 0) {
             return [];
         }
 
+        $gravado = PosAtendimento::deLinha($c);
+
         $mortos = [];
-        foreach (self::CRITERIOS_DENTRO_DA_ANALISE as $campo => $rotulo) {
-            if ((int) ($c[$campo] ?? 0) >= $total) {
-                $mortos[] = sprintf('%s (%d ms)', $rotulo, (int) ($c[$campo] ?? 0));
-            }
+        foreach ($gravado->criteriosMortos() as $campo => $rotulo) {
+            $mortos[] = sprintf('%s (%d ms)', $rotulo, $gravado->valor($campo));
         }
 
         return $mortos;
+    }
+
+    /**
+     * As regras dos nove, derivadas da declaração.
+     *
+     * Os limites vinham escritos à mão, e `max:65535` é o teto do SMALLINT das colunas:
+     * aceitar mais faria o MySQL truncar em silêncio, e o operador veria um número na
+     * tela e outro no classificador. Agora o teto vem do mesmo lugar que o `max` do
+     * input, então tela e validação não têm como discordar.
+     *
+     * @return array<string,list<string>>
+     */
+    private function regrasDoPos(): array
+    {
+        $regras = [];
+        foreach (PosAtendimento::parametros() as $p) {
+            $regras[$p->coluna] = ['required', 'integer', 'min:' . $p->minimo, 'max:' . $p->maximo];
+        }
+
+        return $regras;
+    }
+
+    /** @return array<string,int> */
+    private function valoresDoFormulario(): array
+    {
+        $valores = [];
+        foreach (PosAtendimento::parametros() as $p) {
+            $valores[$p->coluna] = (int) $this->{$p->coluna};
+        }
+
+        return $valores;
+    }
+
+    /** @return array<string,mixed> */
+    private function linhaGravada(): array
+    {
+        $linha = DB::table('configuracao')->where('id', 1)->first();
+
+        return $linha === null ? [] : (array) $linha;
     }
 
     /** A mesma classe que o dialer usa — a tela não pode discordar dele. */
