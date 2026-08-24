@@ -221,17 +221,39 @@ final class ConfiguracaoTest extends TestCase
     }
 
     /**
+     * A combinação inválida que estas duas provas precisam.
+     *
+     * 🔴 GRAVADA À MÃO, e antes era herdada do default. Até 24/08/2026 a linha semeada
+     * NASCIA com `silêncio inicial` 6000 contra `análise total` 5000, e estes testes
+     * se apoiavam nisso sem dizer. A migration `pos_silencio_inicial_nasce_vivo`
+     * consertou o default, e os dois quebraram — corretamente, porque a premissa
+     * calada tinha deixado de valer.
+     *
+     * O cenário continua real: é o que existe em toda instalação que rodou antes da
+     * correção e cujo `análise total` é pequeno demais para o conserto automático
+     * alcançar. Só que agora está escrito.
+     */
+    private function gravaCombinacaoHerdadaInvalida(): void
+    {
+        DB::table('configuracao')->where('id', 1)->update([
+            'pos_silencio_inicial_ms' => 6000,
+            'pos_analise_total_ms' => 5000,
+        ]);
+    }
+
+    /**
      * 🔴 DEFEITO HERDADO NÃO TRAVA A TELA.
      *
-     * A combinação inválida (silêncio inicial 6000, análise total 5000) já estava gravada
-     * quando esta validação nasceu. Se a recusa valesse para ela, ninguém conseguiria
-     * mexer no horário de trabalho enquanto o número de outra pessoa estivesse ali — uma
+     * Se a recusa valesse para a combinação já gravada, ninguém conseguiria mexer no
+     * horário de trabalho enquanto o número de outra pessoa estivesse ali — uma
      * validação zelosa transformada em sequestro da configuração inteira.
      */
     #[Test]
     public function combinacao_invalida_herdada_nao_bloqueia_o_resto(): void
     {
-        // Confere a premissa: o default é mesmo a combinação inválida.
+        $this->gravaCombinacaoHerdadaInvalida();
+
+        // Confere a premissa em vez de confiar nela.
         $c = DB::table('configuracao')->where('id', 1)->first();
         $this->assertNotNull($c);
         $this->assertGreaterThanOrEqual((int) $c->pos_analise_total_ms, (int) $c->pos_silencio_inicial_ms);
@@ -251,10 +273,27 @@ final class ConfiguracaoTest extends TestCase
     #[Test]
     public function combinacao_invalida_herdada_aparece_como_aviso(): void
     {
+        $this->gravaCombinacaoHerdadaInvalida();
+
         $this->get(route('configuracao'))
             ->assertOk()
             ->assertSee('Critério que nunca é alcançado', escape: false)
             ->assertSee('silêncio inicial', escape: false);
+    }
+
+    /**
+     * E a instalação nova NÃO nasce mais com o aviso — que é o ponto da correção.
+     *
+     * Este teste é o par do que foi trocado em `PosAtendimentoTest`: lá a afirmação é
+     * sobre a declaração, aqui é sobre o que o operador vê ao abrir a tela pela
+     * primeira vez numa base recém-migrada.
+     */
+    #[Test]
+    public function instalacao_nova_abre_sem_aviso_de_criterio_morto(): void
+    {
+        $this->get(route('configuracao'))
+            ->assertOk()
+            ->assertDontSee('Critério que nunca é alcançado', escape: false);
     }
 
     /** Combinação válida não gera aviso nenhum. */
@@ -298,6 +337,33 @@ final class ConfiguracaoTest extends TestCase
             30,
             (int) DB::table('configuracao')->where('id', 1)->value('gravacao_retencao_dias'),
         );
+    }
+
+    /**
+     * As nove propriedades da tela repetem os defaults da declaração, e este teste é
+     * o que impede a repetição de virar divergência.
+     *
+     * 🔴 SÃO LITERAIS PORQUE PRECISAM SER: propriedade tipada de Livewire tem que
+     * nascer inicializada, e `mount()` não pode ser a única garantia — ele roda
+     * depois. Na prática `mount()` sobrescreve as nove por
+     * `PosAtendimento::deLinha()`, então o literal quase nunca chega ao operador; foi
+     * por isso que o `6000` sobreviveu aqui sem ninguém notar, mesmo depois de
+     * `PosAtendimento` ter sido criada para acabar com as sete grafias.
+     *
+     * Este teste é a oitava grafia deixando de ser possível.
+     */
+    #[Test]
+    public function os_defaults_da_tela_nao_divergem_da_declaracao(): void
+    {
+        $daTela = (new \ReflectionClass(Configuracao::class))->getDefaultProperties();
+
+        foreach (\App\Dominio\PosAtendimento::parametros() as $p) {
+            $this->assertSame(
+                $p->padrao,
+                $daTela[$p->coluna] ?? null,
+                "`{$p->coluna}`: a propriedade da tela e a declaração discordam do valor de fábrica",
+            );
+        }
     }
 
     #[Test]

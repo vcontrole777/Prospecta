@@ -44,7 +44,7 @@ final class PosAtendimentoTest extends TestCase
     public function os_argumentos_saem_na_ordem_declarada(): void
     {
         $this->assertSame(
-            ['6000', '4000', '800', '5000', '100', '50', '3', '256', '5000'],
+            ['3500', '4000', '800', '5000', '100', '50', '3', '256', '5000'],
             PosAtendimento::padrao()->argumentos(),
         );
     }
@@ -76,7 +76,7 @@ final class PosAtendimentoTest extends TestCase
             'pos_limiar_silencio' => 300,
         ]);
 
-        $this->assertSame(6000, $pos->valor('pos_silencio_inicial_ms'));
+        $this->assertSame(3500, $pos->valor('pos_silencio_inicial_ms'));
         $this->assertSame(4000, $pos->valor('pos_saudacao_max_ms'));
         // Zero não é valor válido para nenhum dos nove — o menor mínimo é 1 —, então
         // zero significa "a coluna não disse nada", e não "o operador pediu zero".
@@ -141,28 +141,29 @@ final class PosAtendimentoTest extends TestCase
     }
 
     /**
-     * 🔴 ESTE TESTE FIXA UM DEFEITO CONHECIDO, e falhar é o comportamento desejado.
+     * 🔴 O CONJUNTO DE FÁBRICA NASCE VIVO, e este teste substitui o que afirmava o
+     * contrário.
      *
-     * O conjunto de fábrica — que é o default das colunas da migration — nasce com
-     * `silêncio inicial` em 6000 contra `análise total` em 5000. É a combinação exata
-     * que foi medida em 21/08/2026: `INITIALSILENCE` ZERO vezes em 8.406 classificações,
-     * 54,6% das Ligações atendidas sem decisão, 12,7 horas de tronco. O `amd.conf` do
-     * Asterisk usa 2500 aqui; a migration escolheu 6000.
+     * Até 24/08/2026 existia aqui um `o_conjunto_de_fabrica_nasce_com_um_criterio_morto`,
+     * escrito para QUEBRAR no dia em que alguém corrigisse o default — para que a
+     * correção fosse decisão tomada e não efeito colateral. A medição saiu, a decisão
+     * foi tomada, a migration `pos_silencio_inicial_nasce_vivo` a aplicou, e o teste
+     * quebrou como projetado. Este é o que entra no lugar.
      *
-     * Ou seja: toda instância nova nasce com o critério morto, e a tela passa a denunciá-lo
-     * na primeira visita.
+     * Medido sobre 8.829 Ligações: com `silêncio inicial` em 3500 contra 5000 de
+     * `análise total`, `NOTSURE` caiu de 55,0% para 1,9% e `INITIALSILENCE` saiu de
+     * ZERO para 1.638 ocorrências.
      *
-     * Se alguém corrigir o default, ESTE TESTE QUEBRA — de propósito. A correção mexe no
-     * comportamento do classificador em toda instalação e precisa ser uma decisão tomada,
-     * com migration que conserte as linhas já gravadas, não um efeito colateral.
+     * A trava continua existindo, virada ao contrário: quem devolver o default para um
+     * valor que estoure o orçamento quebra aqui.
      */
     #[Test]
-    public function o_conjunto_de_fabrica_nasce_com_um_criterio_morto(): void
+    public function o_conjunto_de_fabrica_nasce_sem_criterio_morto(): void
     {
         $this->assertSame(
-            ['pos_silencio_inicial_ms' => 'silêncio inicial'],
+            [],
             PosAtendimento::padrao()->criteriosMortos(),
-            'o default da migration ainda é 6000 de silêncio inicial contra 5000 de análise total',
+            'o default de fábrica voltou a ter um critério que nunca dispara',
         );
     }
 
@@ -172,7 +173,7 @@ final class PosAtendimentoTest extends TestCase
         $pos = PosAtendimento::padrao()->com(['pos_palavras_max' => 7]);
 
         $this->assertSame(7, $pos->valor('pos_palavras_max'));
-        $this->assertSame(6000, $pos->valor('pos_silencio_inicial_ms'));
+        $this->assertSame(3500, $pos->valor('pos_silencio_inicial_ms'));
         $this->assertSame(9, count($pos->paraColunas()));
     }
 
