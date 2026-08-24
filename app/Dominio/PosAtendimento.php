@@ -48,13 +48,14 @@ final class PosAtendimento
      * carregada: `PosAtendimentoTest` afirma que os dois conjuntos batem com a
      * migration, para que mudar um sem o outro quebre em vez de divergir calado.
      *
-     * 🔴 E o conjunto de fábrica TEM UM CRITÉRIO MORTO. `silêncio inicial` é 6000
-     * contra 5000 de `análise total` — a combinação exata que a nota de
-     * `criteriosMortos()` diz ter custado 12,7 horas de tronco. O `amd.conf` do
-     * Asterisk usa 2500 aqui; a migration escolheu 6000. Instância nova nasce com o
-     * defeito, e por isso a tela agora o denuncia desde a primeira visita.
-     * `PosAtendimentoTest` fixa esse fato de propósito: corrigir o default deve
-     * QUEBRAR o teste, para que a correção seja uma decisão e não um efeito colateral.
+     * 🔴 O conjunto de fábrica JÁ TEVE um critério morto, e o 3500 abaixo é o
+     * conserto. `silêncio inicial` nasceu em 6000 contra 5000 de `análise total` —
+     * pedia mais tempo que o orçamento inteiro e por isso nunca disparava. Medido em
+     * 24/08/2026 na MESMA Campanha antes e depois: com 3500, a atendida sem decisão
+     * caiu de 54,9% para 2,1% e `INITIALSILENCE` saiu de ZERO para 7.812. Ver a migration
+     * `pos_silencio_inicial_nasce_vivo`, que carrega a tabela inteira.
+     *
+     * 3500 e não o 2500 do `amd.conf` porque 3500 é o que foi MEDIDO nesta rota.
      *
      * @return list<ParametroDoPos>
      */
@@ -62,7 +63,7 @@ final class PosAtendimento
     {
         return [
             // 1 initialSilence — quanto silêncio antes do primeiro som ainda é humano
-            new ParametroDoPos('pos_silencio_inicial_ms', 'silêncio inicial', 6000, 100, 65535, dentroDaAnalise: true),
+            new ParametroDoPos('pos_silencio_inicial_ms', 'silêncio inicial', 3500, 100, 65535, dentroDaAnalise: true),
             // 2 greeting — saudação mais longa que isto é secretária eletrônica
             new ParametroDoPos('pos_saudacao_max_ms', 'saudação máxima', 4000, 100, 65535, dentroDaAnalise: true),
             // 3 afterGreetingSilence
