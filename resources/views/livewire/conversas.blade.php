@@ -134,12 +134,45 @@
                             @endforeach
                         </div>
 
-                        {{-- Declara o limite em vez de deixar o operador procurar o campo
-                             de resposta. Meia-boca aqui seria pior: ele escreveria e a
-                             mensagem sumiria. --}}
-                        <div class="mt-6 border-t border-[var(--rule)] pt-4 text-sm text-base-content/60">
-                            Esta tela é somente leitura. Responder exige um remetente de
-                            texto livre no worker, que ainda não existe.
+                        {{-- Caixa de resposta. Só aparece quando o envio PODE dar certo:
+                             mostrar um campo que vai recusar é o que fazia esta tela ser
+                             somente leitura. --}}
+                        <div class="mt-6 border-t border-[var(--rule)] pt-4">
+                            @if ($detalhe['bloqueado'])
+                                <p class="text-sm text-warning">
+                                    Este número está na Lista de bloqueio — a pessoa pediu para
+                                    não ser contatada. Não é possível responder.
+                                </p>
+                            @elseif (! $detalhe['janela_aberta'])
+                                <p class="text-sm text-base-content/60">
+                                    A janela de 24 h está fechada, então texto livre não pode ser
+                                    enviado. Ela reabre assim que a pessoa mandar qualquer
+                                    mensagem; até lá, só template aprovado, pelo Disparo da Campanha.
+                                </p>
+                            @else
+                                <form wire:submit="responder" class="flex flex-col gap-2">
+                                    <x-textarea wire:model="resposta"
+                                                placeholder="Escreva a resposta…"
+                                                rows="3" />
+
+                                    <div class="flex items-center justify-between gap-3">
+                                        <span class="text-sm text-base-content/60">
+                                            Restam {{ $detalhe['janela_restante'] }} de janela.
+                                        </span>
+
+                                        <x-button type="submit" class="btn-primary btn-sm"
+                                                  label="Enviar" spinner="responder" />
+                                    </div>
+                                </form>
+
+                                {{-- Diz que a saída é assíncrona. Sem isto o operador clica,
+                                     não vê a mensagem na hora e clica de novo — mandando duas. --}}
+                                <p class="mt-2 text-sm text-base-content/50">
+                                    A resposta entra na fila e sai na próxima volta do worker,
+                                    em alguns segundos. Ela aparece aqui quando a Meta confirmar
+                                    o envio.
+                                </p>
+                            @endif
                         </div>
                     </div>
                 @endif

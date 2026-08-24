@@ -68,17 +68,8 @@ final class DuracaoMaxima
         float $naoEntendiSeg = 0.0,
         float $confirmacaoSeg = 0.0,
     ): int {
-        $tentativas = max(1, $tentativasUra);
-
-        $total = $this->antesDoDialogo($timeoutToqueSeg, $aberturaSeg);
-
-        // `lerDigitos($audioMensagem, 1, 8000)`: toca a mensagem e espera 8 s por dígito.
-        $total += $tentativas * (self::naoNegativo($mensagemSeg) + self::ESPERA_TECLA_SEG);
-
-        // O "não entendi" toca ENTRE tentativas, então uma vez menos.
-        $total += ($tentativas - 1) * self::naoNegativo($naoEntendiSeg);
-
-        $total += self::naoNegativo($confirmacaoSeg);
+        $total = $this->antesDoDialogo($timeoutToqueSeg, $aberturaSeg)
+            + $this->portao($mensagemSeg, $tentativasUra, $naoEntendiSeg, $confirmacaoSeg);
 
         return (int) ceil($total);
     }
@@ -86,15 +77,44 @@ final class DuracaoMaxima
     /**
      * O pior caso de uma captura, em segundos.
      *
-     * A captura NÃO toca o áudio de mensagem — `Fluxo::captura` pergunta campo a campo,
-     * com o prompt de cada um. Somar a mensagem aqui inflaria a conta e recusaria
-     * Campanha que caberia no limite.
+     * 🔴 A CAPTURA TAMBÉM PASSA PELO PORTÃO, e esta conta NEGAVA isso.
+     *
+     * O texto que estava aqui dizia que "a captura NÃO toca o áudio de mensagem" e que
+     * somá-lo inflaria a conta. Era verdade e deixou de ser: `Fluxo::captura` passou a
+     * chamar `portao()` antes das perguntas — Mensagem, tecla de Opt-in, e só então os
+     * campos —, porque pedir CPF a quem não ouviu a oferta é pedir documento sem
+     * autorização. A conta não acompanhou.
+     *
+     * O efeito era subestimar TODA Campanha de captura pelo custo do portão: a mensagem
+     * multiplicada pelas tentativas da URA, mais o "não entendi" entre elas, mais a
+     * confirmação. Com mensagem de 14 s e duas tentativas na URA, são 47 s que não
+     * apareciam — e o preço de subestimar é exatamente o que o cabeçalho desta classe
+     * descreve: a reconciliação declara morta uma chamada VIVA e disca de novo para quem
+     * está na linha digitando o próprio CPF.
+     *
+     * É a demonstração do aviso que já estava escrito: "o modelo segue `Fastagi\Fluxo`
+     * passo a passo; se o fluxo mudar, esta conta mente".
      *
      * @param  list<array{tentativas:int, timeoutSeg:int, promptSeg:float}>  $campos
+     * @param  float  $confirmaCapturaSeg  O "recebi, obrigado" do fim. SOMA com
+     *                                     `$confirmacaoSeg` em vez de substituí-la: na
+     *                                     mesma chamada tocam as duas — a do portão
+     *                                     quando a tecla é apertada, esta quando os dados
+     *                                     chegam. Contar só a maior subestimaria o caso
+     *                                     que de fato acontece no caminho de sucesso.
      */
-    public function captura(int $timeoutToqueSeg, float $aberturaSeg = 0.0, array $campos = []): int
-    {
-        $total = $this->antesDoDialogo($timeoutToqueSeg, $aberturaSeg);
+    public function captura(
+        int $timeoutToqueSeg,
+        float $aberturaSeg = 0.0,
+        array $campos = [],
+        float $mensagemSeg = 0.0,
+        int $tentativasUra = 1,
+        float $naoEntendiSeg = 0.0,
+        float $confirmacaoSeg = 0.0,
+        float $confirmaCapturaSeg = 0.0,
+    ): int {
+        $total = $this->antesDoDialogo($timeoutToqueSeg, $aberturaSeg)
+            + $this->portao($mensagemSeg, $tentativasUra, $naoEntendiSeg, $confirmacaoSeg);
 
         foreach ($campos as $campo) {
             // 🔴 O PROMPT ENTRA EM CADA TENTATIVA, pelo mesmo motivo da mensagem no
@@ -105,6 +125,31 @@ final class DuracaoMaxima
         }
 
         return (int) ceil($total);
+    }
+
+    /**
+     * O portão: Mensagem, tecla e confirmação. COMUM aos dois tipos, como no `Fluxo`.
+     *
+     * Extraído em vez de copiado pela mesma razão que `Fluxo::portao` foi: as três regras
+     * sutis — a mensagem tocando em CADA tentativa, o "não entendi" tocando uma vez menos,
+     * a confirmação uma vez só — já estavam certas de um lado. Duplicá-las significaria
+     * consertar duas vezes, e este arquivo já provou que a segunda cópia fica para trás.
+     */
+    private function portao(
+        float $mensagemSeg,
+        int $tentativasUra,
+        float $naoEntendiSeg,
+        float $confirmacaoSeg,
+    ): float {
+        $tentativas = max(1, $tentativasUra);
+
+        // `lerDigitos($audioMensagem, 1, 8000)`: toca a mensagem e espera 8 s por dígito.
+        $total = $tentativas * (self::naoNegativo($mensagemSeg) + self::ESPERA_TECLA_SEG);
+
+        // O "não entendi" toca ENTRE tentativas, então uma vez menos.
+        $total += ($tentativas - 1) * self::naoNegativo($naoEntendiSeg);
+
+        return $total + self::naoNegativo($confirmacaoSeg);
     }
 
     /**

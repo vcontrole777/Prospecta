@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Fastagi;
 
+use App\Dominio\PosAtendimento;
 use PDO;
 
 /**
@@ -67,14 +68,23 @@ final class Banco
                     am.arquivo  AS audio_mensagem,
                     ai.arquivo  AS audio_opt_in,
                     ao.arquivo  AS audio_opt_out,
+                    ac.arquivo  AS audio_confirma_captura,
                     an.arquivo  AS audio_nao_entendi,
                     ag.arquivo  AS audio_mensagem_generica,
-                    g.gravacao_ativa
+                    g.gravacao_ativa,
+                    -- Pós-atendimento: chave e os nove parâmetros, do MESMO join que já
+                    -- trazia `gravacao_ativa`. Custo zero de consulta na FASE 1.
+                    g.classificador_pos_ativo,
+                    g.pos_silencio_inicial_ms, g.pos_saudacao_max_ms,
+                    g.pos_silencio_apos_saudacao_ms, g.pos_analise_total_ms,
+                    g.pos_palavra_min_ms, g.pos_silencio_entre_palavras_ms,
+                    g.pos_palavras_max, g.pos_limiar_silencio, g.pos_palavra_max_ms
             FROM ligacao l
             JOIN campanha c        ON c.id = l.campanha_id
             LEFT JOIN audio am     ON am.id = c.audio_mensagem_id
             LEFT JOIN audio ai     ON ai.id = c.audio_confirma_opt_in_id
             LEFT JOIN audio ao     ON ao.id = c.audio_confirma_opt_out_id
+            LEFT JOIN audio ac     ON ac.id = c.audio_confirma_captura_id
             LEFT JOIN audio an     ON an.id = c.audio_nao_entendi_id
             -- 🔴 LEFT JOIN, não CROSS JOIN.
             --
@@ -133,6 +143,11 @@ final class Banco
                 ?? $this->caminho($audioDir, self::texto($linha['audio_mensagem_generica'] ?? null)),
             audioConfirmaOptIn: $this->caminho($audioDir, self::texto($linha['audio_opt_in'] ?? null)),
             audioConfirmaOptOut: $this->caminho($audioDir, self::texto($linha['audio_opt_out'] ?? null)),
+            // SEM recurso global, ao contrário do `naoentendi`: o texto deste áudio é
+            // sobre o que a Campanha coletou, então um genérico do sistema diria a coisa
+            // errada com voz de certeza. Ausente é ausente, e a captura termina como
+            // terminava antes — em silêncio, mas sem mentir.
+            audioConfirmaCaptura: $this->caminho($audioDir, self::texto($linha['audio_confirma_captura'] ?? null)),
             // 🔴 Recurso no áudio de SISTEMA. Ele é instalado pelo provisionamento e
             // NENHUMA linha de código o usava — peso morto que o playbook exigia.
             //
@@ -144,9 +159,23 @@ final class Banco
             teclaOptIn: self::texto($linha['tecla_opt_in'] ?? null),
             teclaOptOut: self::texto($linha['tecla_opt_out'] ?? null),
             tentativasUra: self::numero($linha['tentativas_ura'] ?? null),
-            gravacaoAtiva: self::numero($linha['gravacao_ativa'] ?? null) === 1,
+            gravacaoAtiva: self::numeroOuNulo($linha['gravacao_ativa'] ?? null) === 1,
             gravacaoDir: $gravacaoDir,
             campos: $this->campos($ligacaoId, $audioDir),
+            // 🔴 `!== 0` e não `=== 1`, ao contrário da gravação logo acima. A diferença
+            // é o que acontece com a linha de `configuracao` ausente: gravação degrada
+            // para DESLIGADA, porque gravar sem configuração seria guardar áudio que
+            // ninguém pediu; o classificador degrada para LIGADO, porque desligá-lo
+            // entrega a Mensagem inteira a secretárias eletrônicas sem que ninguém tenha
+            // decidido isso. Ausência de configuração não é permissão para mudar o
+            // comportamento do produto.
+            //
+            // 🔴 E isto SÓ FUNCIONA com `numeroOuNulo`. Com o antigo `numero`, que
+            // devolvia `0` para ausência, `!== 0` dava FALSO e o classificador degradava
+            // para DESLIGADO — o oposto exato do parágrafo acima, no arquivo em que o
+            // parágrafo está escrito.
+            classificadorPosAtivo: self::numeroOuNulo($linha['classificador_pos_ativo'] ?? null) !== 0,
+            pos: PosAtendimento::deLinha($linha),
         );
     }
 
@@ -219,6 +248,7 @@ final class Banco
                     desfecho      = :desfecho,
                     tecla_digitada= :tecla,
                     respostas     = :respostas,
+                    tentativas_invalidas = :tentativas_invalidas,
                     amd_status    = :amd_status,
                     amd_cause     = :amd_cause,
                     gravacao      = :gravacao,
@@ -232,6 +262,10 @@ final class Banco
                 'desfecho' => $r->desfecho,
                 'tecla' => $r->teclaDigitada,
                 'respostas' => $r->respostas === [] ? null : json_encode($r->respostas, JSON_UNESCAPED_UNICODE),
+                // Diagnóstico, não entrega — ver a migration e `Resultado::$tentativasInvalidas`.
+                'tentativas_invalidas' => $r->tentativasInvalidas === []
+                    ? null
+                    : json_encode($r->tentativasInvalidas, JSON_UNESCAPED_UNICODE),
                 'amd_status' => $r->amdStatus,
                 'amd_cause' => $r->amdCause,
                 'gravacao' => $r->gravacao,
@@ -248,6 +282,22 @@ final class Banco
                     VALUES ('disparo', :ref, 'pendente', NOW())
                     ON DUPLICATE KEY UPDATE id = id
                 SQL)->execute(['ref' => $ligacaoId]);
+
+                // 🔴 CARIMBA O LEAD TAMBÉM, e não é duplicação do desfecho.
+                //
+                // Reiniciar a Campanha APAGA as Ligações; `leads.opt_in_em` é o que
+                // sobrevive a isso e mantém quem converteu fora da próxima rodada. Sem esta
+                // escrita, o Opt-in de hoje some no primeiro reinício e a pessoa é discada
+                // de novo — ver a migration `leads_guarda_opt_in`.
+                //
+                // `COALESCE` preserva o primeiro sim: quem apertou 1 em duas rodadas
+                // converteu na primeira, e é essa a data que interessa.
+                $pdo->prepare(<<<'SQL'
+                    UPDATE leads le
+                      JOIN ligacao l ON l.lead_id = le.id
+                       SET le.opt_in_em = COALESCE(le.opt_in_em, NOW())
+                     WHERE l.id = :id
+                SQL)->execute(['id' => $ligacaoId]);
             }
 
             // Opt-out entra na lista de bloqueio GLOBAL: quem pediu para não ser
@@ -304,6 +354,19 @@ final class Banco
     private static function numero(mixed $v): int
     {
         return is_numeric($v) ? (int) $v : 0;
+    }
+
+    /**
+     * Como `numero`, mas capaz de dizer "a coluna não disse nada".
+     *
+     * `numero` colapsa ausência e zero literal no mesmo valor, e isso obrigava cada
+     * chamador a reinventar a degradação: um comparava `=== 1`, outro `!== 0`, um
+     * terceiro `=== null` — e este último era código morto, porque `numero` nunca
+     * devolvia `null`. Ver a nota sobre o classificador em `carregar`.
+     */
+    private static function numeroOuNulo(mixed $v): ?int
+    {
+        return is_numeric($v) ? (int) $v : null;
     }
 
     private function caminho(string $dir, ?string $arquivo): ?string

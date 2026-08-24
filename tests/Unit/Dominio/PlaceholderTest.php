@@ -82,6 +82,24 @@ final class PlaceholderTest extends TestCase
         $this->assertSame(['João', 'Acme', 'Goiânia'], $r);
     }
 
+    /**
+     * Template SEM parâmetro é caso legítimo — toda mensagem de texto fixo é assim.
+     *
+     * 🔴 REGRESSÃO MEDIDA EM PRODUÇÃO. `range(1, 0)` no PHP devolve `[1, 0]`, não lista
+     * vazia: ele conta de trás quando o fim é menor que o início. Sem a guarda do vazio,
+     * mapa vazio comparava `[]` com `[1, 0]` e o disparo falhava com
+     * `MAPA_NAO_SEQUENCIAL ... recebido  e esperado 1,0`. Quatro Ações morreram assim
+     * antes de alguém notar que o "esperado" era impossível.
+     */
+    #[Test]
+    public function template_sem_parametro_nao_exige_mapa(): void
+    {
+        $this->assertSame([], $this->p->parametrosTemplate([], ['Nome' => 'João']));
+
+        // E sem dado nenhum também: template fixo não lê coluna alguma.
+        $this->assertSame([], $this->p->parametrosTemplate([], []));
+    }
+
     #[Test]
     public function mapa_com_lacuna_falha_porque_a_meta_exige_sequencia(): void
     {

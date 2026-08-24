@@ -74,7 +74,25 @@ final class Fluxo
      */
     private function classificar(Dados $d, Resultado $r): bool
     {
-        $this->agi->executar('AMD', ...$d->amd);
+        /*
+         * 🔴 DESLIGADO SEGUE COMO HUMANO, e deixa `amd_status` NULO.
+         *
+         * Nulo é o registro honesto de "não classificamos", e é distinto de `NOTSURE`,
+         * que significa "classificamos e não deu para decidir". Gravar NOTSURE aqui
+         * misturaria as duas coisas na mesma coluna e estragaria justamente a análise
+         * que o classificador existe para alimentar — a comparação entre baldes.
+         *
+         * E o desfecho `maquina` deixa de ser possível enquanto isto estiver desligado.
+         * É consequência esperada, não perda: sem classificar, não há como afirmar que
+         * atendeu máquina, e afirmar assim mesmo seria inventar dado.
+         */
+        if (! $d->classificadorPosAtivo) {
+            $this->log->linha('amd', 'Pós-atendimento desligado na configuração; seguindo como humano');
+
+            return true;
+        }
+
+        $this->agi->executar('AMD', ...$d->pos->argumentos());
         $r->amdStatus = $this->agi->variavel('AMDSTATUS');
         $r->amdCause = $this->agi->variavel('AMDCAUSE');
         $this->log->linha('amd', 'classificado', ['status' => $r->amdStatus, 'causa' => $r->amdCause]);
@@ -102,6 +120,32 @@ final class Fluxo
 
     private function optIn(Dados $d, Resultado $r): Resultado
     {
+        $this->portao($d, $r);
+
+        return $r;
+    }
+
+    /**
+     * Toca a Mensagem e lê a tecla. É a URA de opt-in, e agora ela é COMPARTILHADA.
+     *
+     * 🔴 A CAPTURA TAMBÉM PASSA POR AQUI, e antes não passava.
+     *
+     * `captura()` ia direto ao prompt do primeiro campo: a pessoa atendia e ouvia "digite
+     * seu CPF" sem nunca ter ouvido a oferta nem ter concordado com nada. Além de pedir
+     * documento a quem não autorizou, isso arruína a taxa — ninguém digita CPF para uma
+     * voz que não se apresentou.
+     *
+     * O fluxo certo, e o que este método impõe aos dois tipos: Mensagem → tecla de
+     * Opt-in → só então as perguntas.
+     *
+     * Extraído em vez de copiado porque a cortesia do `naoentendi`, a contagem de
+     * tentativas e o tratamento de Opt-out são regra sutil que já estava certa aqui.
+     * Duplicar significaria consertar duas vezes daqui em diante.
+     *
+     * @return bool true quando houve Opt-in — o único caso em que a captura prossegue
+     */
+    private function portao(Dados $d, Resultado $r): bool
+    {
         // 🔴 RECUSA em vez de discar mudo.
         //
         // `audioMensagem` é nulo quando a Campanha não tem áudio E a configuração global
@@ -117,7 +161,7 @@ final class Fluxo
             $r->desfecho = 'erro';
             $r->erro = 'AUDIO_NAO_CONFIGURADO';
 
-            return $r;
+            return false;
         }
 
         for ($tentativa = 1; $tentativa <= max(1, $d->tentativasUra); $tentativa++) {
@@ -133,7 +177,7 @@ final class Fluxo
                 }
                 $r->desfecho = 'sem_resposta';
 
-                return $r;
+                return false;
             }
 
             $r->teclaDigitada = $tecla;
@@ -142,14 +186,14 @@ final class Fluxo
                 $r->desfecho = 'opt_in';
                 $this->tocarCortesia($d->audioConfirmaOptIn, $r);
 
-                return $r;
+                return true;
             }
 
             if ($d->teclaOptOut !== null && $tecla === $d->teclaOptOut) {
                 $r->desfecho = 'opt_out';
                 $this->tocarCortesia($d->audioConfirmaOptOut, $r);
 
-                return $r;
+                return false;
             }
 
             if ($tentativa < $d->tentativasUra) {
@@ -159,12 +203,12 @@ final class Fluxo
 
             $r->desfecho = 'invalido';
 
-            return $r;
+            return false;
         }
 
         $r->desfecho = 'sem_resposta';
 
-        return $r;
+        return false;
     }
 
     private function captura(Dados $d, Resultado $r): Resultado
@@ -189,6 +233,45 @@ final class Fluxo
             }
         }
 
+        /*
+         * 🔴 O PORTÃO VEM ANTES DAS PERGUNTAS, e depois da conferência dos prompts.
+         *
+         * Depois porque campo sem áudio tem que abortar sem gastar a Mensagem nem o
+         * tempo da pessoa. Antes das perguntas porque pedir CPF a quem não ouviu a
+         * oferta e não apertou nada é pedir documento sem autorização — e, na prática,
+         * ninguém digita.
+         *
+         * Só `opt_in` prossegue. `opt_out`, `sem_resposta` e `invalido` já vêm com o
+         * desfecho gravado pelo portão, e são desfecho final: quem pediu para não ser
+         * contatado não passa a ser interrogado em seguida.
+         */
+        if (! $this->portao($d, $r)) {
+            return $r;
+        }
+
+        /*
+         * 🔴 SAI DO `opt_in` ASSIM QUE O PORTÃO ABRE, antes de perguntar qualquer coisa.
+         *
+         * O portão grava `opt_in` como valor TRANSITÓRIO, e quem o sobrescreve é o fim
+         * deste método. Só que o fim não é alcançado quando o Lead desliga no meio: o
+         * `lerCampo` lança `CanalMorto`, que sobe até o `fastagi.php` e vai direto para a
+         * FASE 4 — corretamente, para não perder o que já se sabe, e por isso a correção
+         * não é capturar a exceção aqui.
+         *
+         * O que se perdia era o resto: `Banco::gravar` decide TUDO por
+         * `desfecho === 'opt_in'`, então cada desligamento no prompt do CPF gravava um
+         * Desfecho que uma Campanha de captura não pode ter, criava uma Ação de Disparo
+         * numa Campanha sem template — que nasce e morre em
+         * `campanha_sem_template_ou_lead_sem_telefone` — e carimbava `leads.opt_in_em`,
+         * aposentando para sempre quem não entregou dado nenhum. Medido em 21/08/2026:
+         * 5 Leads aposentados para 1 captura boa.
+         *
+         * `captura_parcial` é o valor certo para o intervalo: o portão abriu, a coleta
+         * começou e não terminou. É o mesmo desfecho que o campo obrigatório esgotado já
+         * usa logo abaixo, e descreve o desligamento com a mesma honestidade.
+         */
+        $r->desfecho = 'captura_parcial';
+
         foreach ($d->campos as $campo) {
             // O prompt vai como argumento próprio: a conferência acima garantiu que
             // não é nulo, e passar explícito é o que torna a garantia legível.
@@ -206,7 +289,42 @@ final class Fluxo
             $r->respostas[$campo['nome']] = $valor;
         }
 
+        /*
+         * Sobrescreve o `opt_in` que o portão gravou: numa Campanha de captura o Opt-in é
+         * ETAPA, não desfecho. O que interessa no relatório é se os dados vieram.
+         *
+         * `respostas === []` com o portão aprovado significa que a pessoa autorizou e
+         * nenhum campo foi coletado — todos opcionais e esgotados. `sem_resposta`
+         * descreve isso melhor que `captura_concluida` sobre um JSON vazio.
+         */
         $r->desfecho = $r->respostas === [] ? 'sem_resposta' : 'captura_concluida';
+
+        /*
+         * 🔴 O "RECEBI, OBRIGADO" — e a captura terminava MUDA sem ele.
+         *
+         * Era o único caminho do fluxo sem retorno nenhum: o portão confirma a tecla, a
+         * recusa confirma a recusa, a tecla errada tem o "não entendi". Quem digitava os
+         * 11 dígitos certos ouvia silêncio e a linha caía. Do lado da pessoa isso é
+         * indistinguível de ter dado errado — e ela acabou de entregar um documento.
+         *
+         * 🔴 DEPOIS do desfecho, e SÓ no sucesso. Dois motivos para a ordem:
+         *
+         * · `sem_resposta` não toca. Ninguém digitou nada; dizer "recebemos seus dados"
+         *   seria afirmar o contrário do que aconteceu. `captura_parcial` também não
+         *   chega aqui — sai com `return` lá em cima.
+         * · gravar o desfecho ANTES de tocar é o que faz o dado sobreviver ao áudio. Se a
+         *   pessoa desligar durante a confirmação — caso comum: ela já respondeu, já
+         *   ouviu o "obrigado" começar —, o `Resultado` que a FASE 4 grava já tem
+         *   `captura_concluida` e as respostas. Tocar primeiro arriscaria perder a coleta
+         *   inteira por causa da cortesia que vem depois dela.
+         *
+         * `tocarCortesia` e não `tocar`: falha de arquivo aqui vai para o log e NÃO
+         * contamina o desfecho. A pessoa entregou o CPF; o áudio que não tocou é problema
+         * nosso, não dela.
+         */
+        if ($r->desfecho === 'captura_concluida') {
+            $this->tocarCortesia($d->audioConfirmaCaptura, $r);
+        }
 
         return $r;
     }
@@ -235,6 +353,25 @@ final class Fluxo
 
             if ($ok) {
                 return $valor;
+            }
+
+            /*
+             * 🔴 GUARDA O QUE FOI DIGITADO E REPROVADO.
+             *
+             * Antes o valor era descartado aqui — nem o log o registrava, só o `strlen`.
+             * O desfecho virava `captura_parcial` e a tela mostrava célula VAZIA: o
+             * operador via que falhou e não tinha como saber se a pessoa digitou 5
+             * dígitos e desistiu, errou o dígito verificador, ou digitou o CPF de outra
+             * pessoa. Três problemas, três correções diferentes.
+             *
+             * Vazio não entra: "não digitou nada" já é o que a ausência significa, e
+             * poluir a lista com strings vazias esconderia as tentativas reais.
+             */
+            if ($valor !== '') {
+                $this->log->linha('campo_invalido', 'valor reprovado na validação', [
+                    'campo' => $campo['nome'], 'tentativa' => $t,
+                ]);
+                $r->tentativasInvalidas[$campo['nome']][] = $valor;
             }
         }
 

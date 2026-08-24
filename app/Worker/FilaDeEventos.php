@@ -192,6 +192,108 @@ final class FilaDeEventos
     }
 
     /**
+     * Registra uma mensagem que NÓS enviamos, para ela aparecer na Conversa.
+     *
+     * 🔴 ISTO FALTAVA, e o buraco era visível na tela: `aplicarStatus` só faz
+     * `UPDATE conversa_mensagem ... WHERE wamid`, e a linha nunca era criada. Resultado:
+     * a caixa de entrada mostrava o que o Lead escrevia e NADA do que foi enviado a ele
+     * — nem os Disparos de template. O operador via metade do diálogo e tinha que
+     * adivinhar a outra, e o `status` de entrega não tinha onde pousar.
+     *
+     * Chamado depois do envio ACEITO, quando já existe `wamid`. Sem `wamid` não há como
+     * o webhook de status casar depois, então gravar antes seria criar linha órfã.
+     *
+     * `direcao = 'saida'` e `status = 'enviado'`: é o que a Meta acabou de confirmar. Os
+     * estados seguintes — entregue, lido — chegam por webhook e o `aplicarStatus` os
+     * aplica, respeitando a regra de só avançar.
+     *
+     * Cria a `conversa` quando não existe: um Disparo pode ser a PRIMEIRA mensagem do
+     * diálogo, e nesse caso não houve entrada nenhuma para tê-la criado. Note que
+     * `ultima_entrada_em` NÃO é tocado aqui — a janela de 24 h corre pela última
+     * mensagem DELE, não pela nossa, e mexer nisso faria a tela mostrar janela aberta
+     * onde não há.
+     */
+    public function registrarSaida(
+        string $telefone,
+        string $wamid,
+        string $texto,
+        ?string $templateNome = null,
+    ): void {
+        $canonico = $this->telefone->canonico($telefone);
+
+        $lead = $this->pdo->prepare('SELECT id FROM leads WHERE telefone = :t ORDER BY id LIMIT 1');
+        $lead->execute(['t' => $canonico]);
+        $leadId = $lead->fetchColumn();
+
+        $this->pdo->prepare(
+            'INSERT INTO conversa (telefone, lead_id, criado_em)
+             VALUES (:t, :l, NOW())
+             ON DUPLICATE KEY UPDATE lead_id = COALESCE(conversa.lead_id, VALUES(lead_id))'
+        )->execute(['t' => $canonico, 'l' => is_numeric($leadId) ? (int) $leadId : null]);
+
+        $busca = $this->pdo->prepare('SELECT id FROM conversa WHERE telefone = :t');
+        $busca->execute(['t' => $canonico]);
+        $id = $busca->fetchColumn();
+
+        if ($id === false) {
+            return;
+        }
+
+        $this->pdo->prepare(
+            'INSERT INTO conversa_mensagem
+                    (conversa_id, wamid, direcao, tipo, texto, template_nome, status, criado_em)
+             VALUES (:c, :w, \'saida\', :tp, :tx, :tn, \'enviado\', NOW())
+             ON DUPLICATE KEY UPDATE id = id'
+        )->execute([
+            'c' => (int) $id,
+            'w' => $wamid,
+            'tp' => $templateNome === null ? 'text' : 'template',
+            'tx' => $texto === '' ? null : $texto,
+            'tn' => $templateNome,
+        ]);
+    }
+
+    /**
+     * Fecha o ciclo de uma mensagem de saída que a tela já criou.
+     *
+     * A resposta do operador nasce em `conversa_mensagem` com `wamid` e `status` nulos —
+     * é o que a faz aparecer na conversa imediatamente, em vez de sumir até o worker
+     * rodar. Aqui ela recebe o resultado do envio.
+     *
+     * 🔴 O `wamid` é o que importa. Sem ele os webhooks de entrega não têm como casar
+     * (`aplicarStatus` procura por `wamid`), e a mensagem ficaria em "enviado" para
+     * sempre mesmo depois de lida.
+     *
+     * Não avança status já terminal: se o webhook de `delivered` chegar antes de esta
+     * gravação acontecer — improvável, mas a Meta é rápida —, sobrescrever com `enviado`
+     * faria a tela regredir. É a mesma regra de só-avançar do `aplicarStatus`.
+     */
+    public function confirmarSaida(int $mensagemId, ?string $wamid, bool $enviada): void
+    {
+        if ($mensagemId <= 0) {
+            return;
+        }
+
+        if (! $enviada) {
+            $this->pdo->prepare(
+                "UPDATE conversa_mensagem SET status = 'falhou' WHERE id = :id AND status IS NULL"
+            )->execute(['id' => $mensagemId]);
+
+            return;
+        }
+
+        if ($wamid === null) {
+            return;
+        }
+
+        $this->pdo->prepare(
+            "UPDATE conversa_mensagem
+                SET wamid = :w, status = 'enviado'
+              WHERE id = :id AND status IS NULL"
+        )->execute(['w' => $wamid, 'id' => $mensagemId]);
+    }
+
+    /**
      * Põe o telefone na lista de bloqueio GLOBAL.
      *
      * Global porque quem pediu para não ser contatado pediu ao NEGÓCIO, não à

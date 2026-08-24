@@ -76,6 +76,41 @@ final class Whatsapp
         return $this->interpretar($r);
     }
 
+    /**
+     * Texto livre — a resposta do operador dentro da janela de 24 h.
+     *
+     * 🔴 SÓ DENTRO DA JANELA, e quem verifica isso NÃO é este método. A Meta recusa
+     * texto livre fora dela com erro 131047, e o operador leria "falhou" sem saber por
+     * quê. A janela é checada em `Conversas` antes de a Ação nascer, e reconferida no
+     * worker no instante do envio — porque entre digitar e enviar pode passar tempo, e
+     * uma janela que vira no meio é caso real, não hipótese.
+     *
+     * `preview_url` fica FALSO: prévia de link muda a altura da mensagem e carrega
+     * imagem de terceiro para o Lead. Quem quiser mandar link, manda o link.
+     */
+    public function enviarTexto(string $para, string $texto, ?string $correlacao = null): Envio
+    {
+        $corpo = [
+            'messaging_product' => 'whatsapp',
+            'recipient_type' => 'individual',
+            'to' => $para,
+            'type' => 'text',
+            'text' => ['preview_url' => false, 'body' => $texto],
+        ];
+
+        if ($correlacao !== null) {
+            $corpo['biz_opaque_callback_data'] = $correlacao;
+        }
+
+        $r = $this->transporte->postJson(
+            sprintf('https://graph.facebook.com/%s/%s/messages', $this->versaoApi, $this->numeroId),
+            $corpo,
+            ['Authorization' => 'Bearer ' . $this->token],
+        );
+
+        return $this->interpretar($r);
+    }
+
     /** @param array{http:int, corpo:string, erro:?string} $r */
     private function interpretar(array $r): Envio
     {

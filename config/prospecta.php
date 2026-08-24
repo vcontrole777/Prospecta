@@ -16,6 +16,19 @@ return [
         '/',
     ),
 
+    /*
+     * O fuso em que o OPERADOR pensa, usado para exibir instantes nas telas.
+     *
+     * 🔴 NÃO é o fuso de armazenamento. O banco guarda em UTC e continua guardando —
+     * `Conversas::momento()` interpreta as colunas em `app.timezone` e calcula a janela
+     * de 24 h em cima disso. Este valor traduz só na saída, em `App\Suporte\Instante`.
+     *
+     * Mesma variável e mesmo padrão de `config/dialer.php`: o Horário de Trabalho e a
+     * tela têm que falar do mesmo relógio, senão o operador vê "fora de horário" num
+     * horário que a tela diz ser comercial.
+     */
+    'fuso' => (string) env('APP_TIMEZONE', 'America/Sao_Paulo'),
+
     // Limite de duração da mensagem de Campanha. Generoso de propósito: é o
     // operador que sabe quanto a oferta dele precisa falar. O limite duro que
     // importa é o da `abertura`, e aquele é áudio de sistema, não de Campanha.

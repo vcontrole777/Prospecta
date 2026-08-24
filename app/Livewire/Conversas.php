@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire;
 
+use App\Suporte\Instante;
 use App\Whatsapp\JanelaDeAtendimento;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -16,22 +17,28 @@ use Livewire\Component;
  * Caixa de entrada. O webhook já populava `conversa` e `conversa_mensagem` e nada
  * mostrava — o Lead respondia e ninguém lia.
  *
- * 🔴 SOMENTE LEITURA nesta versão, e é decisão declarada na tela.
+ * Responder JÁ FUNCIONA, e o caminho é o que a versão anterior desta classe descrevia
+ * como pré-requisito: um tipo de Ação para texto livre (`acao.tipo = 'resposta_texto'`)
+ * e um remetente no worker. A tela enfileira; quem fala com a Meta é o worker.
  *
- * Responder exige um caminho novo: um tipo de Ação para texto livre e um remetente no
- * worker. Fazer meia-boca — um campo de texto que às vezes funciona, dependendo da
- * janela e do template disponível — seria pior que não ter: o operador escreveria uma
- * resposta e ela sumiria.
+ * 🔴 A RECUSA VEM ANTES DE ENFILEIRAR. O risco que mantinha a tela somente-leitura era
+ * "um campo de texto que às vezes funciona": o operador escreve, a Ação nasce condenada
+ * e a resposta some. Por isso `responder()` recusa na hora, com o motivo escrito, nos
+ * três casos em que o envio não pode dar certo — texto vazio, número na Lista de
+ * bloqueio, e janela de 24 h fechada.
  *
- * O que a tela FAZ é o que decide se responder é possível: mostrar quanto resta da
- * janela de 24 h. Dentro dela texto livre é ilimitado e não custa por mensagem; fora,
- * só template pago.
+ * A janela continua sendo o que a tela mostra de mais importante: dentro dela texto
+ * livre é ilimitado e não custa por mensagem; fora, só template pago. E o worker a
+ * RECONFERE no instante do envio, porque entre digitar e enviar ela pode virar.
  */
 final class Conversas extends Component
 {
     /** Na URL para o operador poder mandar o link de uma conversa a alguém. */
     #[Url(as: 'c', except: null)]
     public ?int $selecionada = null;
+
+    /** O que o operador está escrevendo. Não vai para a URL — é rascunho, não endereço. */
+    public string $resposta = '';
 
     public function render(): View
     {
@@ -48,6 +55,98 @@ final class Conversas extends Component
     public function selecionar(int $id): void
     {
         $this->selecionada = $id;
+        $this->resposta = '';
+        $this->resetErrorBag();
+    }
+
+    /**
+     * Enfileira a resposta do operador.
+     *
+     * 🔴 ENFILEIRA, NÃO ENVIA. A Ação vai para a fila e o worker manda — a mesma
+     * disciplina do ADR-0002. Enviar aqui poria uma chamada HTTP a um terceiro dentro
+     * de uma requisição web, e duplicaria a resolução de credencial, a política de
+     * tentativas e o mapeamento de erro que o worker já faz. O preço é a mensagem
+     * aparecer na próxima volta do worker, não instantaneamente.
+     *
+     * As três recusas abaixo acontecem ANTES de a Ação nascer, porque enfileirar algo
+     * que se sabe que vai falhar é o "meia-boca" que esta tela evitava ao ficar somente
+     * leitura: o operador escreveria e a resposta sumiria.
+     */
+    public function responder(): void
+    {
+        $this->validate(
+            ['resposta' => ['required', 'string', 'max:4000']],
+            [
+                'resposta.required' => 'Escreva alguma coisa antes de enviar.',
+                'resposta.max' => 'O WhatsApp corta texto acima de 4096 caracteres.',
+            ],
+        );
+
+        if ($this->selecionada === null) {
+            return;
+        }
+
+        $fuso = new DateTimeZone(self::texto(config('app.timezone')) ?: 'UTC');
+        $detalhe = $this->detalhe($this->selecionada, new DateTimeImmutable('now', $fuso));
+
+        if ($detalhe === null) {
+            return;
+        }
+
+        // Bloqueado é quem pediu para não ser contatado. A Lista de bloqueio vale para
+        // Campanha e vale aqui: um "só uma última mensagem" digitado à mão é
+        // exatamente o que ela existe para impedir.
+        if ($detalhe['bloqueado'] === true) {
+            $this->addError('resposta', 'Este número está na Lista de bloqueio e não pode ser contatado.');
+
+            return;
+        }
+
+        // Fora da janela a Meta recusa texto livre com 131047. Recusar aqui, com o
+        // motivo escrito, é melhor que enfileirar e o operador ver "falhou" depois.
+        if ($detalhe['janela_aberta'] !== true) {
+            $this->addError(
+                'resposta',
+                'A janela de 24 h fechou. Só template pode ser enviado agora — '
+                . 'e é o Disparo da Campanha que faz isso.',
+            );
+
+            return;
+        }
+
+        /*
+         * 🔴 A MENSAGEM NASCE PRIMEIRO, e a Ação aponta para ELA — não para a Conversa.
+         *
+         * `acao` tem `unique(tipo, referencia_id)`, e a migration diz por quê:
+         * "Idempotência para TODA Ação, no esquema e não no código". Apontar para a
+         * Conversa fazia a segunda resposta do mesmo diálogo colidir — testado, e o erro
+         * é `Duplicate entry 'resposta_texto-2'`. Uma Conversa tem muitas respostas; uma
+         * mensagem tem um envio. Referenciando a mensagem, a restrição passa a dizer a
+         * coisa certa em vez de atrapalhar.
+         *
+         * Ganho de brinde: a resposta aparece na hora na conversa, como pendente
+         * (`wamid` e `status` nulos), em vez de sumir até o worker rodar.
+         */
+        $mensagemId = DB::table('conversa_mensagem')->insertGetId([
+            'conversa_id' => $this->selecionada,
+            'wamid' => null,      // chega quando a Meta aceitar
+            'direcao' => 'saida',
+            'tipo' => 'text',
+            'texto' => trim($this->resposta),
+            'status' => null,     // nulo = ainda não enviada
+            'criado_em' => now(),
+        ]);
+
+        DB::table('acao')->insert([
+            'tipo' => 'resposta_texto',
+            'referencia_id' => $mensagemId,
+            'status' => 'pendente',
+            'tentativas' => 0,
+            'criado_em' => now(),
+        ]);
+
+        $this->resposta = '';
+        $this->dispatch('resposta-enfileirada');
     }
 
     /**
@@ -56,6 +155,17 @@ final class Conversas extends Component
      * `ultima_entrada_em DESC` e não `criado_em`: quem escreveu agora é quem espera
      * resposta, e é por quem a janela está correndo. Ordenar por criação enterraria uma
      * conversa antiga que acabou de receber mensagem.
+     *
+     * 🔴 SÓ QUEM RESPONDEU. `ultima_entrada_em IS NOT NULL` é exatamente "esta pessoa nos
+     * escreveu pelo menos uma vez" — a coluna só é tocada por `registrarEntrada`.
+     *
+     * A caixa passou a criar `conversa` também na SAÍDA, para o Disparo aparecer no
+     * diálogo. O efeito colateral era a lista encher de linhas de gente que só recebeu e
+     * nunca respondeu: numa Campanha de 10 mil Leads, 10 mil conversas mudas enterrariam
+     * as poucas que exigem atenção. Esta tela existe para quem espera resposta.
+     *
+     * Quem só recebeu continua visível onde faz sentido — nos Resultados da Campanha,
+     * com o status de entrega ao lado do Lead.
      *
      * @return list<array<string,mixed>>
      */
@@ -72,7 +182,8 @@ final class Conversas extends Component
                       WHERE m3.conversa_id = c.id ORDER BY m3.id DESC LIMIT 1) AS ultima_direcao,
                     EXISTS(SELECT 1 FROM bloqueio b WHERE b.telefone = c.telefone) AS bloqueado
                FROM conversa c
-              ORDER BY c.ultima_entrada_em IS NULL, c.ultima_entrada_em DESC, c.id DESC
+              WHERE c.ultima_entrada_em IS NOT NULL
+              ORDER BY c.ultima_entrada_em DESC, c.id DESC
               LIMIT 200"
         ) as $linha) {
             $c = (array) $linha;
@@ -137,7 +248,7 @@ final class Conversas extends Component
                 'template' => self::texto($m['template_nome'] ?? null),
                 'status' => self::texto($m['status'] ?? null),
                 'erro' => is_numeric($m['erro_codigo'] ?? null) ? (int) $m['erro_codigo'] : null,
-                'quando' => substr(self::texto($m['criado_em'] ?? null), 0, 16),
+                'quando' => Instante::local($m['criado_em'] ?? null),
             ];
         }
 

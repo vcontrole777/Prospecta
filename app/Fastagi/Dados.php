@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Fastagi;
 
+use App\Dominio\PosAtendimento;
+
 /**
  * Tudo que a FASE 1 carregou. Depois disto o banco é DESCONECTADO (ADR-0001):
  * processo por chamada que segura conexão pela duração inteira transforma 200
@@ -14,10 +16,12 @@ namespace App\Fastagi;
  */
 final class Dados
 {
+    /** Os nove parâmetros do Pós-atendimento, já resolvidos. */
+    public readonly PosAtendimento $pos;
+
     /**
      * @param 'opt_in'|'captura' $tipo
      * @param list<array{nome:string,tamanho:int,tipo:string,audio:?string,obrigatorio:bool,tentativas:int,timeoutSeg:int}> $campos
-     * @param list<string> $amd parâmetros do AMD, na ordem posicional
      */
     public function __construct(
         public readonly int $ligacaoId,
@@ -37,6 +41,11 @@ final class Dados
         public readonly ?string $audioMensagem,
         public readonly ?string $audioConfirmaOptIn,
         public readonly ?string $audioConfirmaOptOut,
+        /**
+         * O "recebi, obrigado" do fim da captura. Toca UMA vez, só quando os campos
+         * obrigatórios vieram — ver `Fluxo::captura` e a migration que criou a coluna.
+         */
+        public readonly ?string $audioConfirmaCaptura,
         public readonly ?string $audioNaoEntendi,
         public readonly ?string $teclaOptIn,
         public readonly ?string $teclaOptOut,
@@ -44,7 +53,19 @@ final class Dados
         public readonly bool $gravacaoAtiva,
         public readonly string $gravacaoDir,
         public readonly array $campos = [],
-        public readonly array $amd = ['6000', '4000', '800', '5000', '100', '50', '3', '256', '5000'],
+        /**
+         * Chave do Pós-atendimento. `true` por default: o classificador existia antes de
+         * ser configurável, e o default tem que descrever o sistema como ele já era.
+         */
+        public readonly bool $classificadorPosAtivo = true,
+        /**
+         * 🔴 NÃO é promovida, e não é estilo: o default é o conjunto de fábrica, que é
+         * uma chamada de método — e default de parâmetro promovido tem que ser expressão
+         * constante. Repetir os nove literais aqui para contornar isso seria recriar
+         * exatamente a oitava soletração que `PosAtendimento` existe para eliminar.
+         */
+        ?PosAtendimento $pos = null,
     ) {
+        $this->pos = $pos ?? PosAtendimento::padrao();
     }
 }

@@ -1,0 +1,104 @@
+:root {
+  --fg: #16181d;
+  --fg-soft: #4a5160;
+  --bg: #ffffff;
+  --bg-soft: #f5f6f8;
+  --line: #e2e5ea;
+  --accent: #1f5fd6;
+  --warn-bg: #fff8e6;
+  --warn-line: #e8c15a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e6e8ec;
+    --fg-soft: #a3aab8;
+    --bg: #14161a;
+    --bg-soft: #1c1f25;
+    --line: #2c313a;
+    --accent: #7aa5f0;
+    --warn-bg: #2a2415;
+    --warn-line: #7a6526;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 1.25rem 5rem;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+main { max-width: 46rem; margin: 0 auto; }
+
+header {
+  border-bottom: 1px solid var(--line);
+  padding: 2.5rem 0 1.5rem;
+  margin-bottom: 2rem;
+}
+
+h1 { font-size: 1.75rem; line-height: 1.25; margin: 0 0 .5rem; letter-spacing: -.01em; }
+h2 {
+  font-size: 1.15rem;
+  margin: 2.5rem 0 .75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  letter-spacing: -.005em;
+}
+h3 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+
+p, li { color: var(--fg-soft); }
+li { margin-bottom: .4rem; }
+strong { color: var(--fg); font-weight: 600; }
+
+.vigencia { font-size: .875rem; color: var(--fg-soft); margin: 0; }
+
+a { color: var(--accent); }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: .925rem;
+}
+th, td {
+  text-align: left;
+  padding: .6rem .75rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  color: var(--fg-soft);
+}
+th { color: var(--fg); font-weight: 600; background: var(--bg-soft); }
+
+.tabela-wrap { overflow-x: auto; }
+
+.aviso {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  padding: 1rem 1.15rem;
+  margin: 1.5rem 0;
+}
+.aviso p { margin: 0; color: var(--fg); font-size: .925rem; }
+
+.preencher {
+  background: var(--bg-soft);
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+  padding: .05rem .4rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .85em;
+  color: var(--fg);
+}
+
+footer {
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  font-size: .875rem;
+  color: var(--fg-soft);
+}

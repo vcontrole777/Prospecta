@@ -43,15 +43,16 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 
-# 🔴 Áudio NUNCA entra no repositório.
+# 🔴 Dos áudios, SÓ os dois de sistema entram.
 #
-# `abertura.alaw` é gravação de voz real — a pessoa que gravou não consentiu com
-# publicação, e um repositório é distribuição. Os áudios de sistema vivem no destino
-# (`/var/lib/asterisk/sounds/prospecta`) e o playbook os copia de `audios/`, que é uma
-# área de trabalho local, não fonte versionada.
+# `abertura.alaw` e `naoentendi.alaw` são saída de TTS, fixos do produto, e por isso
+# versionados. Uma versão anterior desta regra os barrava alegando gravação de voz sem
+# consentimento; isso estava errado, e a consequência que ela aceitava era real —
+# instância NOVA subia sem os áudios, e o provisionamento falha sem eles.
 #
-# Consequência conhecida e aceita: instância NOVA não recebe os áudios pelo playbook —
-# quem provisiona precisa levá-los. Ver audios/README.md.
-audios/*.alaw
-audios/*.wav
-audios/*.gsm
+# O RESTO de `audios/` continua fora: é área de trabalho, e a entrada que alimenta
+# `bin/gerar-abertura.sh` pousa aqui. Ver audios/README.md.
+audios/*
+!audios/README.md
+!audios/abertura.alaw
+!audios/naoentendi.alaw

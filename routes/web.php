@@ -10,6 +10,7 @@ use App\Livewire\Campanhas;
 use App\Livewire\Configuracao;
 use App\Livewire\Conversas;
 use App\Livewire\ImportarLista;
+use App\Http\Controllers\Gravacao;
 use App\Http\Controllers\WebhookWhatsapp;
 use App\Livewire\Integracoes;
 use App\Livewire\Resultados;
@@ -67,6 +68,18 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/rota', Rota::class)->name('rota');
     Route::get('/integracoes', Integracoes::class)->name('integracoes');
     Route::get('/conversas', Conversas::class)->name('conversas');
+
+    /*
+    | A gravação NUNCA é servida direto do disco. Vem por aqui, atrás de `auth`, e o
+    | controller converte o GSM para WAV — nenhum navegador toca GSM cru.
+    |
+    | O parâmetro é o ID da Ligação e nada mais: o caminho é DERIVADO dele. Aceitar
+    | caminho vindo do navegador seria travessia de diretório num servidor que tem a
+    | senha da Rota em arquivo.
+    */
+    Route::get('/gravacao/{ligacao}', Gravacao::class)
+        ->whereNumber('ligacao')
+        ->name('gravacao');
     Route::get('/configuracao', Configuracao::class)->name('configuracao');
 
     /*

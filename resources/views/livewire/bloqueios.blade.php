@@ -144,7 +144,7 @@
                                     <span class="text-base-content/70">à mão</span>
                                 @endif
                             </td>
-                            <td class="identificador p-2 text-xs">{{ substr((string) $b->criado_em, 0, 16) }}</td>
+                            <td class="identificador p-2 text-xs">{{ \App\Suporte\Instante::local($b->criado_em) }}</td>
                             <td class="p-2 text-xs">
                                 @if ($b->campanha !== null)
                                     <span class="text-base-content/70">{{ $b->campanha }}</span>

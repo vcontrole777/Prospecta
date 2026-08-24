@@ -89,6 +89,89 @@ final class Resultados extends Component
         $this->resetPage();
     }
 
+    /**
+     * Recoloca um Disparo que falhou de volta na fila.
+     *
+     * 🔴 REUSA A LINHA, não cria outra. `acao` tem `unique(tipo, referencia_id)` —
+     * "idempotência para TODA Ação, no esquema e não no código", diz a migration — então
+     * um segundo `disparo` para a mesma Ligação é impossível por construção, e tentar
+     * inserir daria `Duplicate entry`. Voltar a linha para `pendente` é a operação certa
+     * e mantém a garantia de que uma Ligação nunca gera duas mensagens em paralelo.
+     *
+     * 🔴 ZERA `tentativas`. Sem isso o worker reivindicaria e a `PoliticaDeEnvio` a
+     * mataria na volta seguinte por esgotamento — o botão pareceria não fazer nada.
+     * Reenviar é uma decisão humana e recomeça a contagem.
+     *
+     * SÓ o que está em estado terminal de erro. Reenviar uma Ação `pendente` a duplicaria
+     * na fila; reenviar uma `entregue` mandaria a mesma mensagem duas vezes para o Lead —
+     * e a Cloud API não tem chave de idempotência que nos proteja disso.
+     */
+    public function reenviar(int $acaoId): void
+    {
+        $afetadas = DB::table('acao')
+            ->where('id', $acaoId)
+            ->where('tipo', 'disparo')
+            ->whereIn('status', ['falhou', 'pausado', 'limite_destinatario'])
+            // Confere que a Ação é DESTA Campanha: o id vem do navegador, e sem esta
+            // junção um id digitado à mão reenviaria Disparo de outra Campanha.
+            ->whereExists(function ($q): void {
+                $q->select(DB::raw(1))
+                    ->from('ligacao as l')
+                    ->whereColumn('l.id', 'acao.referencia_id')
+                    ->where('l.campanha_id', $this->campanhaId);
+            })
+            ->update([
+                'status' => 'pendente',
+                'tentativas' => 0,
+                'resposta' => null,
+                'wamid' => null,
+                'processado_em' => null,
+            ]);
+
+        $this->dispatch($afetadas > 0 ? 'disparo-reenfileirado' : 'disparo-nao-reenfileirado');
+    }
+
+    /**
+     * Recoloca na fila TODOS os Disparos falhados desta Campanha.
+     *
+     * Existe porque a falha em massa é o caso real: um 131042 (moeda não configurada) ou
+     * um token vencido derruba a Campanha inteira de uma vez, e clicar linha a linha em
+     * mil Leads não é operação, é castigo. As mesmas regras do reenvio individual valem —
+     * só estado terminal de erro, `tentativas` zerado.
+     */
+    public function reenviarFalhados(): void
+    {
+        $afetadas = DB::table('acao')
+            ->where('tipo', 'disparo')
+            ->whereIn('status', ['falhou', 'pausado', 'limite_destinatario'])
+            ->whereExists(function ($q): void {
+                $q->select(DB::raw(1))
+                    ->from('ligacao as l')
+                    ->whereColumn('l.id', 'acao.referencia_id')
+                    ->where('l.campanha_id', $this->campanhaId);
+            })
+            ->update([
+                'status' => 'pendente',
+                'tentativas' => 0,
+                'resposta' => null,
+                'wamid' => null,
+                'processado_em' => null,
+            ]);
+
+        $this->dispatch('disparos-reenfileirados', quantos: $afetadas);
+    }
+
+    /** Quantos Disparos desta Campanha estão em estado terminal de erro. */
+    private function disparosFalhados(): int
+    {
+        return DB::table('acao')
+            ->join('ligacao as l', 'l.id', '=', 'acao.referencia_id')
+            ->where('acao.tipo', 'disparo')
+            ->whereIn('acao.status', ['falhou', 'pausado', 'limite_destinatario'])
+            ->where('l.campanha_id', $this->campanhaId)
+            ->count();
+    }
+
     public function render(): View
     {
         return view('livewire.resultados', [
@@ -99,6 +182,8 @@ final class Resultados extends Component
             // O diagnóstico UMA vez, no topo, em vez de "não consigo verificar" repetido
             // em cinquenta linhas: a causa é a mesma para todas, e é de configuração.
             'gravacaoAcessivel' => $this->gravacaoAcessivel(),
+            // Para a tela poder oferecer o reenvio em massa só quando há o que reenviar.
+            'disparosFalhados' => $this->disparosFalhados(),
         ]);
     }
 
@@ -218,11 +303,19 @@ final class Resultados extends Component
         $q = DB::table('ligacao as l')
             ->leftJoin('leads as le', 'le.id', '=', 'l.lead_id')
             ->where('l.campanha_id', $this->campanhaId)
+            // O Disparo é a Ação cuja `referencia_id` é a Ligação — a mesma chave que o
+            // `fastagi` usa ao gravá-la. LEFT JOIN porque Ligação sem Opt-in não gera
+            // Disparo nenhum, e essas são a maioria.
+            ->leftJoin('acao as ac', function ($j): void {
+                $j->on('ac.referencia_id', '=', 'l.id')->where('ac.tipo', '=', 'disparo');
+            })
             ->select([
                 'l.id', 'l.numero_tentativa', 'l.iniciada_em', 'l.atendida_em',
                 'l.duracao_seg', 'l.duracao_falada_seg', 'l.codigo_sip', 'l.hangup_cause',
-                'l.amd_status', 'l.desfecho', 'l.respostas', 'l.tecla_digitada',
+                'l.amd_status', 'l.desfecho', 'l.respostas', 'l.tentativas_invalidas', 'l.tecla_digitada',
                 'l.bina', 'l.gravacao', 'le.telefone',
+                'ac.id as disparo_id', 'ac.status as disparo_status',
+                'ac.tentativas as disparo_tentativas', 'ac.resposta as disparo_erro',
             ]);
 
         // `array_key_exists` e não `in_array` sobre valores: a chave é o que vai para o
@@ -343,6 +436,34 @@ final class Resultados extends Component
             if (is_string($chave) && (is_string($valor) || is_numeric($valor))) {
                 $saida[$chave] = (string) $valor;
             }
+        }
+
+        return $saida;
+    }
+
+    /**
+     * As tentativas reprovadas, por campo.
+     *
+     * Formato diferente de `respostas`: aqui o valor é uma LISTA, porque a pessoa pode
+     * ter errado mais de uma vez e cada tentativa conta parte da história — duas curtas
+     * seguidas apontam para prompt ruim, não para desatenção.
+     *
+     * @return array<string,list<string>>
+     */
+    public static function tentativasInvalidas(mixed $json): array
+    {
+        $d = is_string($json) ? json_decode($json, true) : null;
+
+        if (! is_array($d)) {
+            return [];
+        }
+
+        $saida = [];
+        foreach ($d as $campo => $tentativas) {
+            if (! is_string($campo) || ! is_array($tentativas)) {
+                continue;
+            }
+            $saida[$campo] = array_values(array_filter($tentativas, 'is_string'));
         }
 
         return $saida;

@@ -105,6 +105,19 @@
         </div>
 
         <div class="text-right">
+            {{-- 🔴 SÓ APARECE QUANDO HÁ O QUE REENVIAR. Botão sempre presente convida
+                 clique sem efeito; e a falha em massa é o caso real — um 131042 (moeda
+                 não configurada) ou um token vencido derruba a Campanha inteira de uma
+                 vez, e aí clicar linha a linha em mil Leads não é operação. --}}
+            @if ($disparosFalhados > 0)
+                <button wire:click="reenviarFalhados"
+                        wire:confirm="Recolocar na fila os {{ $disparosFalhados }} Disparos que falharam?"
+                        class="btn btn-sm mb-2">
+                    Reenviar {{ $disparosFalhados }} {{ $disparosFalhados === 1 ? 'Disparo falhado' : 'Disparos falhados' }}
+                </button>
+                <div class="rotulo mb-3">Conserte a causa antes — reenviar sem isso repete a mesma falha</div>
+            @endif
+
             <button wire:click="exportar" class="btn btn-sm btn-primary">Exportar CSV</button>
             {{-- Dito na tela porque o operador vai abrir no Excel e, se o CPF começar com
                  zero, o Excel o remove ao converter para número. O arquivo está certo; a
@@ -137,6 +150,10 @@
                             <th class="p-2 text-left"><span class="rotulo">{{ $campo['nome'] }}</span></th>
                         @endforeach
                         <th class="p-2 text-left"><span class="rotulo">Causa</span></th>
+                        {{-- O Disparo é o que acontece DEPOIS do Opt-in. Sem esta coluna o
+                             operador via "opt_in" e não tinha como saber se a mensagem
+                             chegou — e não chegar é o modo de falha caro. --}}
+                        <th class="p-2 text-left"><span class="rotulo">Disparo</span></th>
                         <th class="p-2 text-left"><span class="rotulo">Gravação</span></th>
                     </tr>
                 </thead>
@@ -144,12 +161,13 @@
                     @foreach ($ligacoes as $l)
                         @php
                             $respostas = \App\Livewire\Resultados::respostas($l->respostas);
+                            $invalidas = \App\Livewire\Resultados::tentativasInvalidas($l->tentativas_invalidas);
                             $gravacao = is_string($l->gravacao) ? $l->gravacao : '';
                         @endphp
                         <tr class="border-b border-[var(--rule)] last:border-b-0 hover:bg-[var(--bg-hover)]">
                             <td class="identificador p-2">{{ $l->id }}</td>
                             <td class="identificador p-2">{{ $l->telefone ?? '—' }}</td>
-                            <td class="identificador p-2 text-xs">{{ substr((string) $l->iniciada_em, 0, 16) }}</td>
+                            <td class="identificador p-2 text-xs">{{ \App\Suporte\Instante::local($l->iniciada_em) }}</td>
                             <td class="num p-2">{{ $l->numero_tentativa }}</td>
                             {{-- `duracao_falada_seg` e não `duracao_seg`: o que interessa é
                                  quanto tempo houve alguém na linha depois do ANSWER. A
@@ -180,7 +198,28 @@
                                      dado, não falha de tela: mostra ONDE a URA perdeu a
                                      pessoa, e é o que diz qual pergunta está longa demais. --}}
                                 <td class="identificador p-2">
-                                    {{ $respostas[$campo['nome']] ?? '' }}
+                                    @if (isset($respostas[$campo['nome']]))
+                                        {{ $respostas[$campo['nome']] }}
+                                    @else
+                                        @php $tentado = $invalidas[$campo['nome']] ?? []; @endphp
+
+                                        {{-- 🔴 O QUE A PESSOA DIGITOU, mesmo reprovado.
+                                             Antes era descartado e a célula ficava vazia: o
+                                             operador via a captura falhar sem saber se foi
+                                             dígito verificador errado, número curto, ou
+                                             documento de outra pessoa — três causas com três
+                                             correções diferentes.
+
+                                             Marcado como inválido de propósito. Este valor NÃO
+                                             sai no CSV: `respostas` é o que vai para o sistema
+                                             do cliente, e CPF reprovado ali entraria como
+                                             bom. --}}
+                                        @foreach ($tentado as $v)
+                                            <div class="text-warning" title="Digitado e reprovado na validação">
+                                                {{ $v }} <span class="rotulo">inválido</span>
+                                            </div>
+                                        @endforeach
+                                    @endif
                                 </td>
                             @endforeach
 
@@ -195,6 +234,37 @@
                                 @endif
                             </td>
 
+                            {{-- Estado do Disparo, e o botão só onde ele resolve algo. --}}
+                            <td class="p-2 text-xs">
+                                @if ($l->disparo_id === null)
+                                    <span class="text-base-content/40">—</span>
+                                @else
+                                    @php
+                                        $falhou = in_array($l->disparo_status, ['falhou', 'pausado', 'limite_destinatario'], true);
+                                    @endphp
+
+                                    <span class="{{ $falhou ? 'text-warning' : 'text-base-content/70' }}">
+                                        {{ $l->disparo_status }}
+                                    </span>
+
+                                    @if ($l->disparo_tentativas > 1)
+                                        <span class="rotulo ml-1">{{ $l->disparo_tentativas }} tent.</span>
+                                    @endif
+
+                                    {{-- A mensagem que a META escreveu, não uma paráfrase nossa:
+                                         é ela que diz "moeda não configurada" em vez de "erro". --}}
+                                    @if ($falhou && $l->disparo_erro !== null)
+                                        <p class="mt-1 max-w-xs text-base-content/50">{{ \Illuminate\Support\Str::limit($l->disparo_erro, 120) }}</p>
+                                    @endif
+
+                                    @if ($falhou)
+                                        <button type="button" wire:click="reenviar({{ $l->disparo_id }})"
+                                                wire:confirm="Reenviar o Disparo deste Lead?"
+                                                class="btn btn-ghost btn-xs mt-1">reenviar</button>
+                                    @endif
+                                @endif
+                            </td>
+
                             <td class="p-2 text-xs">
                                 {{-- Três respostas, não duas: existe, não existe, ou não
                                      sei dizer. `is_file() === false` não prova ausência —
@@ -205,11 +275,16 @@
                                         @break
 
                                     @case (\App\Dominio\SituacaoDoArquivo::EXISTE)
-                                        {{-- Sem player: alaw cru não tem cabeçalho e navegador
-                                             nenhum toca. Servir exigiria empacotar em WAV numa
-                                             rota nova, e um botão que não toca é pior que um
-                                             caminho que o operador copia. --}}
-                                        <span class="identificador text-base-content/70">{{ basename($gravacao) }}</span>
+                                        {{-- 🔴 `preload="none"` é obrigatório, não enfeite.
+                                             Cada play converte o GSM para WAV no servidor; com
+                                             o padrão `metadata` o navegador buscaria as 50
+                                             gravações da página ao abri-la, disparando 50
+                                             conversões que ninguém pediu. Com `none` o servidor
+                                             só trabalha quando alguém aperta play. --}}
+                                        <audio controls preload="none" class="h-8 w-44 align-middle">
+                                            <source src="{{ route('gravacao', ['ligacao' => $l->id]) }}" type="audio/wav">
+                                        </audio>
+                                        <div class="identificador mt-0.5 text-base-content/50">{{ basename($gravacao) }}</div>
                                         @break
 
                                     @case (\App\Dominio\SituacaoDoArquivo::SEM_ACESSO)
