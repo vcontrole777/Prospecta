@@ -18,18 +18,36 @@ return new class extends Migration
      *
      * A coleta terminou. Esta migration é o depois.
      *
-     * MEDIÇÃO, 24/08/2026, 8.829 Ligações de campanha real contra tronco real:
+     * MEDIÇÃO, 24/08/2026, contra tronco real. A MESMA Campanha e a MESMA lista dos
+     * dois lados — a `INSS_nova`, discada antes e depois da troca. Comparar com o
+     * período inteiro daria números melhores e mentiria: as outras Campanhas do dia
+     * 19 a 21 tinham listas diferentes, com propensão diferente a atender e a
+     * interagir.
      *
-     * |                                   | 6000 (19–22/08) | 3500 (24/08) |
-     * |-----------------------------------|-----------------|--------------|
-     * | atendida sem decisão (`NOTSURE`)  | 9.146 — 55,0%   | 61 — 1,9%    |
-     * | causa `INITIALSILENCE`            | ZERO            | 1.638        |
-     * | interação por atendida            | 0,92%           | 1,01%        |
+     * |                                    | 6000    | 3500     |
+     * |------------------------------------|---------|----------|
+     * | atendidas na amostra               | 5.327   | 15.135   |
+     * | atendida sem decisão (`NOTSURE`)   | 54,9%   | **2,1%** |
+     * | causa `INITIALSILENCE`             | ZERO    | 7.812    |
+     * | causa `TOOLONG` (estourou o prazo) | 2.927   | 325      |
+     * | classificadas `HUMAN`              | 19,7%   | 21,6%    |
+     * | atendida que ficou sem desfecho    | 71,1%   | 20,5%    |
+     * | interação por atendida             | 0,64%   | 0,63%    |
      *
-     * O critério que não podia disparar voltou a ser o que mais decide. E não cobrou
-     * o preço que dava para temer: se estivéssemos matando humano como máquina, a
-     * taxa de interação entre as atendidas CAIRIA — ela subiu. `sem_resposta` foi de
-     * 18,2% para 3,1% dos desfechos.
+     * O critério que não podia disparar voltou a ser o que mais decide, e as 2.927
+     * que estouravam o relógio como `TOOLONG` viraram decisão.
+     *
+     * 🔴 E A LINHA QUE IMPORTA PARA A SEGURANÇA É A DO `HUMAN`, não a da interação.
+     *
+     * O risco desta troca é falso-MÁQUINA: desligar na cara de quem atendeu. Se
+     * estivesse acontecendo, a fatia classificada como `HUMAN` ENCOLHERIA — e ela
+     * cresceu, de 19,7% para 21,6%. É a evidência com amostra grande.
+     *
+     * A interação por atendida ficou ESTÁVEL (0,64% → 0,63%), o que confirma sem
+     * contradizer, mas ela não sustenta conclusão sozinha: são 34 e 96 eventos. Uma
+     * leitura anterior desta migration afirmou, sobre amostra menor e Campanhas
+     * misturadas, que a interação tinha SUBIDO. Não subiu; ficou igual. O registro
+     * fica aqui porque número que se corrige calado volta a ser citado errado.
      *
      * 🔴 POR QUE 3500 E NÃO O 2500 DO `amd.conf`. Porque 3500 é o que foi medido
      * nesta rota. O 2500 do fornecedor é mais agressivo e não tem medição aqui que o

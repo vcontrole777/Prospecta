@@ -150,9 +150,9 @@ final class PosAtendimentoTest extends TestCase
      * foi tomada, a migration `pos_silencio_inicial_nasce_vivo` a aplicou, e o teste
      * quebrou como projetado. Este é o que entra no lugar.
      *
-     * Medido sobre 8.829 Ligações: com `silêncio inicial` em 3500 contra 5000 de
-     * `análise total`, `NOTSURE` caiu de 55,0% para 1,9% e `INITIALSILENCE` saiu de
-     * ZERO para 1.638 ocorrências.
+     * Medido na MESMA Campanha antes e depois da troca: com `silêncio inicial` em
+     * 3500 contra 5000 de `análise total`, a atendida sem decisão caiu de 54,9% para
+     * 2,1% e `INITIALSILENCE` saiu de ZERO para 7.812 ocorrências.
      *
      * A trava continua existindo, virada ao contrário: quem devolver o default para um
      * valor que estoure o orçamento quebra aqui.

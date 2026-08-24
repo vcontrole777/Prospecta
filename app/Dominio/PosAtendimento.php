@@ -51,8 +51,8 @@ final class PosAtendimento
      * 🔴 O conjunto de fábrica JÁ TEVE um critério morto, e o 3500 abaixo é o
      * conserto. `silêncio inicial` nasceu em 6000 contra 5000 de `análise total` —
      * pedia mais tempo que o orçamento inteiro e por isso nunca disparava. Medido em
-     * 24/08/2026 sobre 8.829 Ligações: com 3500, `NOTSURE` caiu de 55,0% para 1,9% e
-     * `INITIALSILENCE` saiu de ZERO ocorrências para 1.638. Ver a migration
+     * 24/08/2026 na MESMA Campanha antes e depois: com 3500, a atendida sem decisão
+     * caiu de 54,9% para 2,1% e `INITIALSILENCE` saiu de ZERO para 7.812. Ver a migration
      * `pos_silencio_inicial_nasce_vivo`, que carrega a tabela inteira.
      *
      * 3500 e não o 2500 do `amd.conf` porque 3500 é o que foi MEDIDO nesta rota.
