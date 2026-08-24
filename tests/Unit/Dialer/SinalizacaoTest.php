@@ -45,11 +45,11 @@ final class SinalizacaoTest extends TestCase
      * 🔴 O RECURSO PARA `Cause-txt` É INÚTIL POR CONSTRUÇÃO, e este teste fixa isso.
      *
      * `Cause-txt` é prosa; `codigoNumerico()` procura três dígitos seguidos. O recurso
-     * existe desde antes e nunca produziu um código. É por aqui que 20.713 Ligações —
-     * 77,3% de todas as não atendidas — viram `desconhecido`.
+     * existe desde antes e nunca produziu um código.
      *
-     * O teste NÃO consagra o comportamento como desejável: ele o torna visível. Quando o
-     * Q.850 virar regra, este é o teste que muda.
+     * O teste NÃO consagra o comportamento como desejável: ele o torna visível. Tirar o
+     * recurso é seguro — a medição de 24/08/2026 não achou uma Ligação sequer em que ele
+     * tivesse mudado a decisão — mas é mexer sem ganho, e por isso ficou.
      */
     #[Test]
     public function o_recurso_para_cause_txt_nunca_produz_codigo(): void
@@ -85,12 +85,60 @@ final class SinalizacaoTest extends TestCase
         );
     }
 
+    /**
+     * Dois campos afirmam atendimento, e são os DOIS que valem.
+     *
+     * `Reason: 4` é `AST_CONTROL_ANSWER`. Medido em 24/08/2026: as 2.387 ocorrências
+     * correspondem a 2.387 Ligações com `atendida_em` preenchido, sem exceção.
+     * Enquanto ele ficou de fora, essas 2.387 — 6,6% de tudo o que foi discado em
+     * 5 h 24 — eram marcadas para retentativa depois de terem sido atendidas.
+     */
     #[Test]
-    public function so_o_dialstatus_ANSWER_afirma_atendimento(): void
+    public function dialstatus_ANSWER_e_reason_4_afirmam_atendimento(): void
     {
         $this->assertTrue(Sinalizacao::doEvento(['DialStatus' => 'ANSWER'])->atendeu());
+        $this->assertTrue(Sinalizacao::doEvento(['Reason' => '4'])->atendeu(), 'AST_CONTROL_ANSWER');
         $this->assertFalse(Sinalizacao::doEvento(['DialStatus' => 'CONGESTION'])->atendeu());
+        $this->assertFalse(Sinalizacao::doEvento(['Reason' => '3'])->atendeu(), 'tocando não é atendido');
+        $this->assertFalse(Sinalizacao::doEvento(['Reason' => '0'])->atendeu());
         $this->assertFalse(Sinalizacao::doEvento([])->atendeu());
+    }
+
+    /**
+     * 🔴 `Reason` É `AST_CONTROL`, e não Q.850 nem SIP.
+     *
+     * Os três vocabulários usam números pequenos e plausíveis, e a confusão é
+     * silenciosa: `3` é `RINGING` aqui e "No route to destination" no Q.850. Este
+     * teste existe para que trocar um pelo outro quebre.
+     */
+    #[Test]
+    public function o_reason_vira_numero_de_controle(): void
+    {
+        $this->assertSame(0, Sinalizacao::doEvento(['Reason' => '0'])->controleDeOriginacao());
+        $this->assertSame(3, Sinalizacao::doEvento(['Reason' => '3'])->controleDeOriginacao());
+        $this->assertSame(4, Sinalizacao::doEvento(['Reason' => '4'])->controleDeOriginacao());
+
+        $this->assertSame(Sinalizacao::CONTROLE_NENHUM, 0);
+        $this->assertSame(Sinalizacao::CONTROLE_TOCANDO, 3);
+        $this->assertSame(Sinalizacao::CONTROLE_ATENDEU, 4);
+    }
+
+    /**
+     * `Hangup` não traz `Reason` — nas 970 medidas em 24/08/2026, nenhuma trazia.
+     *
+     * Importa porque o `Hangup` chega DEPOIS do `OriginateResponse` para a mesma
+     * Ligação: se ele produzisse um controle qualquer, sobrescreveria a decisão já
+     * tomada pelo evento mais rico.
+     */
+    #[Test]
+    public function evento_sem_reason_nao_tem_controle(): void
+    {
+        $semReason = Sinalizacao::doEvento(['Event' => 'Hangup', 'Cause' => '19']);
+        $this->assertNull($semReason->controleDeOriginacao());
+
+        // Campo presente mas não numérico também é ausência, não zero — zero É uma
+        // condição medida (`nem chegou a tocar`) e não pode ser o balde do lixo.
+        $this->assertNull(Sinalizacao::doEvento(['Reason' => 'CONGESTION'])->controleDeOriginacao());
     }
 
     #[Test]
