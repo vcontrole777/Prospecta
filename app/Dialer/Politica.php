@@ -11,14 +11,21 @@ namespace App\Dialer;
  * projeto tinha uma suposição errada registrada como regra — ver o parágrafo do
  * `503` abaixo.
  *
- * | Condição                   | SIP   | Q.850 | Canal |
- * |----------------------------|-------|-------|-------|
- * | DDD inexistente            | 503   | 34    | 0 s   |
- * | Número inexistente         | 404   | 1     | 0 s   |
- * | Aparelho desligado         | 480   | 19    | 29 s  |
- * | Não perturbe               | 486   | 17    | —     |
- * | Não atendeu (nosso CANCEL) | 487   | —     | timeout nosso |
- * | Atendeu                    | 200   | —     | —     |
+ * | Condição                   | SIP   | Q.850 | Reason | Canal |
+ * |----------------------------|-------|-------|--------|-------|
+ * | DDD inexistente            | 503   | 34    | —      | 0 s   |
+ * | Número inexistente         | 404   | 1     | —      | 0 s   |
+ * | Aparelho desligado         | 480   | 19    | —      | 29 s  |
+ * | Não perturbe               | 486   | 17    | —      | —     |
+ * | Não atendeu (nosso CANCEL) | 487   | —     | —      | timeout nosso |
+ * | Atendeu                    | 200   | —     | 4      | —     |
+ * | Tocou e não atenderam      | —     | —     | 3      | ~50 s |
+ * | Nem chegou a tocar         | —     | —     | 0      | ~28 s |
+ *
+ * As três últimas linhas foram medidas em 2026-08-24, sobre 8.829 Ligações de
+ * campanha real. As seis primeiras vêm por `Hangup` e trazem código SIP; as três
+ * últimas vêm por `OriginateResponse`, que não traz código SIP nenhum — e é por
+ * isso que a coluna `Reason` precisou existir. Ver `Sinalizacao`.
  */
 final class Politica
 {
@@ -35,14 +42,10 @@ final class Politica
      * 🔴 RECEBE O EVENTO, não três escalares já extraídos.
      *
      * A assinatura anterior empurrava "como ler um evento AMI" para o único
-     * chamador — um laço em `bin/dialer.php` sem teste nenhum. A leitura errada
-     * que vive lá custa 77,3% das Ligações não atendidas classificadas como
-     * falha do sistema; ver `Sinalizacao`. Com o evento entrando inteiro, a
-     * extração passa a ser coberta pela suíte pura que já existe para esta
-     * classe.
-     *
-     * Nenhuma decisão muda aqui: o mapeamento do Q.850 é o passo seguinte, e
-     * espera a distribuição real da rota.
+     * chamador — um laço em `bin/dialer.php` sem teste nenhum. Com o evento
+     * entrando inteiro, a extração passa a ser coberta pela suíte pura que já
+     * existe para esta classe — e foi o que permitiu que o `Reason` virasse regra
+     * com teste em vez de com esperança.
      *
      * @param array<string,mixed> $evento
      * @param bool $atendeuObservado o que os observadores FORA do evento dizem —
@@ -98,13 +101,49 @@ final class Politica
             return new Decisao(Acao::Retentar, true, true, 'erro_de_conta_ou_rota', 'erro', $sinal);
         }
 
-        // Código desconhecido: retenta e NÃO conta para a proteção. Contar
+        /*
+         * Daqui para baixo não há código SIP: é o `OriginateResponse`, que traz só
+         * o `Reason`. São 88,4% dos eventos, e antes de 24/08/2026 caíam inteiros
+         * no `desconhecido` lá embaixo — 48% de TODAS as Ligações relatadas ao
+         * operador como falha do sistema, quando nenhuma delas era.
+         *
+         * 🔴 SÓ O RÓTULO MUDA. `Acao`, `consomeTentativa` e `contaParaProtecao`
+         * são exatamente os do `487` logo acima, que é a mesma condição chegando
+         * por outro evento. O discador se comporta igual; o relatório passa a
+         * dizer a verdade.
+         */
+        $controle = $sinal->controleDeOriginacao();
+
+        // Tocou e ninguém atendeu: resolve em ~50 s, e das 2.036 medidas NENHUMA
+        // tinha `atendida_em`. É o caso do `487` sem o código SIP junto.
+        if ($controle === Sinalizacao::CONTROLE_TOCANDO) {
+            return new Decisao(Acao::Retentar, true, false, 'nao_atendeu', 'nao_atendeu', $sinal);
+        }
+
+        /*
+         * Nem chegou a tocar: nenhum quadro de controle em 28 s, que é o nosso
+         * próprio `timeout_toque_seg` — a mediana medida foi 28,4 s, cravada nele.
+         * Das 2.201, nenhuma tinha `atendida_em`.
+         *
+         * 🔴 MOTIVO PRÓPRIO DE PROPÓSITO, e não `nao_atendeu`. O que a medição NÃO
+         * conseguiu decidir é se isto é "não atendeu" ou "número que não completa":
+         * o discriminador seria a retentativa, e a Campanha está em `rodada_atual`
+         * 0 — 8 segundas tentativas em 52.676 Ligações de toda a história. Sem
+         * rodada reaberta não há o que observar.
+         *
+         * O desfecho vai de `erro` para `nao_atendeu` porque `erro` é a afirmação
+         * mais forte e é a que temos evidência contra. O motivo separado mantém o
+         * grupo visível no log, para a pergunta ser respondida sem mexer no código
+         * de novo.
+         */
+        if ($controle === Sinalizacao::CONTROLE_NENHUM) {
+            return new Decisao(Acao::Retentar, true, false, 'sem_sinal_de_toque', 'nao_atendeu', $sinal);
+        }
+
+        // Condição desconhecida: retenta e NÃO conta para a proteção. Contar
         // desconhecido arriscaria pausar Campanha por uma condição nova e
         // inofensiva; e a proteção já cobre o caso que importa, que é o tronco
         // devolvendo o mesmo erro em tudo.
-        // 🔴 É AQUI QUE OS 77,3% CAEM, e o Q.850 que os consertaria já está no
-        // `$sinal`. Mapear ainda não: a regra sai da distribuição REAL desta
-        // rota, colhida do log, e não do que o padrão prevê.
         return new Decisao(Acao::Retentar, true, false, 'desconhecido', 'erro', $sinal);
     }
 }

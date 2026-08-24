@@ -158,6 +158,18 @@ final class PoliticaTest extends TestCase
                 }
             }
         }
+
+        // E o mesmo pelos caminhos do `Reason`, que não passam por código SIP nenhum.
+        // Um `Reason` novo do Asterisk cairia no `desconhecido`, mas o dia em que um
+        // deles virar regra, a trava tem que já estar cobrindo esta porta.
+        foreach (['0', '3', '4', '5', '8', 'lixo'] as $reason) {
+            foreach ([true, false] as $atendeu) {
+                $d = $p->decidir(['Reason' => $reason], $atendeu)->desfecho;
+                if ($d !== null) {
+                    $this->assertContains($d, $doEnum, "reason {$reason}");
+                }
+            }
+        }
     }
     /**
      * Monta o evento AMI mínimo a partir do par que esta suíte sempre falou.
@@ -182,22 +194,22 @@ final class PoliticaTest extends TestCase
     }
 
     /**
-     * 🔴 O CAMINHO DOS 77,3%, agora exercitado por teste.
+     * `Hangup` SEM `TechCause` continua caindo em `desconhecido`, e isso está certo.
      *
      * Quadro real capturado em 22/08/2026, originando um canal `Local` para um
-     * contexto que não atende. O `Hangup` traz `Cause: 19` e
-     * `Cause-txt: User alerting, no answer` — e NENHUM `TechCause`.
+     * contexto que não atende: `Cause: 19` e `Cause-txt: User alerting, no answer`,
+     * sem `TechCause`. O recurso para `Cause-txt` não salva, porque
+     * `codigoNumerico()` procura três dígitos seguidos e a prosa não tem nenhum.
      *
-     * O recurso para `Cause-txt` não salva: `codigoNumerico()` procura três dígitos
-     * seguidos e a prosa não tem nenhum. A Ligação vira `desconhecido` com desfecho
-     * `erro`, quando foi o nosso próprio cancelamento por não atender.
-     *
-     * O teste fixa o comportamento de HOJE, sem mudá-lo. O Q.850 que conserta isto
-     * já chega e está no `sinal` — vira regra quando a distribuição real da rota for
-     * colhida.
+     * 🔴 O Q.850 NÃO É MAPEADO AQUI DE PROPÓSITO, e a medição de 24/08/2026 é o
+     * motivo. Contra tronco real, `Cause: 19` veio acompanhado de `TechCause` com
+     * `480` nas 424 ocorrências — ou seja, esta forma pobre não é o que a rota
+     * produz. Mapear `19` seria escrever regra a partir de um quadro de laboratório
+     * em vez da distribuição medida, que é exatamente o erro que a medição existiu
+     * para evitar.
      */
     #[Test]
-    public function hangup_sem_TechCause_ainda_cai_em_desconhecido_e_o_q850_fica_guardado(): void
+    public function hangup_sem_TechCause_cai_em_desconhecido_e_o_q850_fica_guardado(): void
     {
         $d = (new Politica())->decidir([
             'Event' => 'Hangup',
@@ -205,31 +217,102 @@ final class PoliticaTest extends TestCase
             'Cause-txt' => 'User alerting, no answer',
         ], false);
 
-        $this->assertSame('desconhecido', $d->motivo, 'é assim que os 77,3% se perdem');
+        $this->assertSame('desconhecido', $d->motivo);
         $this->assertSame('erro', $d->desfecho);
 
         // Afirmado, e não navegado com `?->`: a decisão SEMPRE carrega o que leu, e um
         // `?->` aqui deixaria o teste passar em silêncio se um dia parasse de carregar.
         $sinal = $d->sinal;
         $this->assertNotNull($sinal);
-        $this->assertSame(19, $sinal->q850, 'o dado que conserta isso já chegou');
+        $this->assertSame(19, $sinal->q850);
         $this->assertNull($sinal->codigoNumerico(), 'prosa não tem três dígitos');
+        $this->assertNull($sinal->controleDeOriginacao(), 'Hangup não traz Reason');
     }
 
-    /** O `OriginateResponse` medido no mesmo dia traz `Reason: 3` e nenhum código SIP. */
-    #[Test]
-    public function originate_response_guarda_o_reason(): void
+    /**
+     * 🔴 A CORREÇÃO DE 48% DAS LIGAÇÕES, e ela cabe em duas linhas de tabela.
+     *
+     * Medido em 24/08/2026 sobre 8.829 Ligações de campanha real: 4.237 delas —
+     * 96,9% de tudo o que virava `desconhecido` — chegam por `OriginateResponse`
+     * sem código SIP nenhum, só com `Reason`. Nenhuma das 4.237 tinha
+     * `atendida_em` preenchido.
+     *
+     * A ação NÃO muda: continua `Retentar`, consumindo tentativa, fora da proteção
+     * — exatamente como o `487`, que é a mesma condição por outro evento. O que
+     * muda é o desfecho deixar de dizer `erro` ao operador.
+     *
+     * @return list<array{string,string,string,string}> Reason, motivo, desfecho, apelido
+     */
+    public static function origincacoesSemCodigoSip(): array
     {
+        return [
+            ['3', 'nao_atendeu',        'nao_atendeu', 'tocou ~50 s e ninguém atendeu (2.036 medidas)'],
+            ['0', 'sem_sinal_de_toque', 'nao_atendeu', 'nem tocou; morreu no nosso timeout de 28 s (2.201)'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('origincacoesSemCodigoSip')]
+    public function originate_response_sem_codigo_sip_decide_pelo_reason(
+        string $reason,
+        string $motivo,
+        string $desfecho,
+        string $apelido,
+    ): void {
         $d = (new Politica())->decidir([
             'Event' => 'OriginateResponse',
             'Response' => 'Failure',
-            'Reason' => '3',
+            'Reason' => $reason,
         ], false);
 
-        $sinal = $d->sinal;
-        $this->assertNotNull($sinal);
-        $this->assertSame('3', $sinal->reason);
-        $this->assertSame('desconhecido', $d->motivo);
+        $this->assertSame($motivo, $d->motivo, $apelido);
+        $this->assertSame($desfecho, $d->desfecho, $apelido);
+
+        // O comportamento do discador é o do 487 — só o rótulo mudou.
+        $this->assertSame(Acao::Retentar, $d->acao, $apelido);
+        $this->assertTrue($d->consomeTentativa, $apelido);
+        $this->assertFalse($d->contaParaProtecao, $apelido);
+    }
+
+    /**
+     * Os dois grupos ficam SEPARÁVEIS no log, e isso é o ponto.
+     *
+     * A medição não conseguiu decidir se `Reason: 0` é "não atendeu" ou "número que
+     * não completa": o discriminador é a retentativa, e a Campanha está em
+     * `rodada_atual` 0. Motivos distintos é o que permite responder essa pergunta
+     * quando uma rodada reabrir, sem precisar mexer no código para voltar a medir.
+     */
+    #[Test]
+    public function tocou_e_nem_tocou_nao_se_confundem_no_relatorio(): void
+    {
+        $p = new Politica();
+        $tocou = $p->decidir(['Reason' => '3'], false);
+        $nemTocou = $p->decidir(['Reason' => '0'], false);
+
+        $this->assertNotSame($tocou->motivo, $nemTocou->motivo);
+        $this->assertSame($tocou->desfecho, $nemTocou->desfecho, 'o desfecho é o mesmo; o motivo é que separa');
+    }
+
+    /**
+     * `Reason: 4` é atendimento afirmado, e ignorá-lo tinha custo medido.
+     *
+     * Em 24/08/2026 as 3.155 ocorrências de `Reason: 4` correspondem a 3.155
+     * Ligações com `atendida_em` — sem exceção. Antes deste caso, 45 delas por dia
+     * de campanha caíam em `desconhecido` e eram marcadas para RETENTATIVA: o
+     * discador ligaria de novo para quem já tinha atendido.
+     */
+    #[Test]
+    public function reason_4_e_atendimento_mesmo_sem_DialStatus(): void
+    {
+        $d = (new Politica())->decidir([
+            'Event' => 'OriginateResponse',
+            'Response' => 'Success',
+            'Reason' => '4',
+        ], false);
+
+        $this->assertSame(Acao::Finalizado, $d->acao);
+        $this->assertSame('atendida', $d->motivo);
+        $this->assertNull($d->desfecho, 'atendida: o fastagi é o dono da coluna');
     }
 
     /** A decisão devolve o que leu, para o chamador gravar sem re-extrair. */

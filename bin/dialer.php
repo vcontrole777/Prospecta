@@ -257,24 +257,18 @@ while ($rodando) {
         }
 
         /*
-         * 🔴 `q850`, `reason` e `evento` são MEDIÇÃO, não decisão.
+         * 🔴 ESTE LOG É QUE FOI COLHIDO EM 24/08/2026, e é por isso que continua aqui.
          *
-         * Nada abaixo os lê: a `Politica` continua decidindo só pelo código SIP. Estão
-         * aqui porque 20.713 Ligações — 77,3% de todas as não atendidas — chegam sem
-         * código SIP nenhum e viram `desconhecido` / desfecho `erro`, e 62,6% delas têm
-         * duração entre 28 e 42 s contra um `timeout_toque_seg` de 28. São o nosso
-         * próprio cancelamento por não atender, registrado como falha do sistema.
+         * A hipótese registrada era que o Q.850 consertaria as Ligações que viravam
+         * `desconhecido`. Estas chaves foram postas para medi-la, e a medição a derrubou:
+         * 88,4% dos eventos chegam por `OriginateResponse`, que não traz `Cause` nenhum.
+         * Quem conserta é o `reason`, e ele já virou regra na `Politica`.
          *
-         * O dado para consertar isso JÁ CHEGA e é descartado. Medido em 22/08/2026,
-         * originando um canal `Local` para um contexto que não atende: o `Hangup` traz
-         * `Cause: 19` e `Cause-txt: User alerting, no answer`, e o `OriginateResponse`
-         * traz `Reason: 3`. O `Cause` — o Q.850 numérico — não é lido em lugar nenhum do
-         * projeto, e o fallback para `Cause-txt` é inútil por construção, porque
-         * `Politica::numero()` extrai três dígitos e `Cause-txt` é prosa.
-         *
-         * Registrar antes de mapear é deliberado: assim o mapeamento sai da distribuição
-         * REAL desta rota, e não do que o padrão prevê. Depois de colhido, isto vira
-         * regra na `Politica` e estas três chaves podem sair do log.
+         * `q850` fica porque é o único dado dos ~100 casos de `Hangup` que dizem algo
+         * além do código SIP (102 e 127); `reason` fica porque virou entrada de decisão e
+         * é o que separa `nao_atendeu` de `sem_sinal_de_toque` — a pergunta que a medição
+         * deixou aberta e que só uma rodada reaberta responde. Enquanto ela estiver
+         * aberta, este log é o instrumento; não tirar.
          */
         $log->linha('resultado', $d->motivo, [
             'ligacao' => $lig, 'acao' => $d->acao->name, 'codigo' => $d->sinal?->codigoSip,
