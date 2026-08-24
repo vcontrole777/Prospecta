@@ -261,7 +261,7 @@ while ($rodando) {
          *
          * A hipótese registrada era que o Q.850 consertaria as Ligações que viravam
          * `desconhecido`. Estas chaves foram postas para medi-la, e a medição a derrubou:
-         * 88,4% dos eventos chegam por `OriginateResponse`, que não traz `Cause` nenhum.
+         * 90,5% dos eventos chegam por `OriginateResponse`, que não traz `Cause` nenhum.
          * Quem conserta é o `reason`, e ele já virou regra na `Politica`.
          *
          * `q850` fica porque é o único dado dos ~100 casos de `Hangup` que dizem algo

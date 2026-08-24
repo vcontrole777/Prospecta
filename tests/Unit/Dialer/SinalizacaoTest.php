@@ -88,10 +88,10 @@ final class SinalizacaoTest extends TestCase
     /**
      * Dois campos afirmam atendimento, e são os DOIS que valem.
      *
-     * `Reason: 4` é `AST_CONTROL_ANSWER`. Medido em 24/08/2026: as 3.155 ocorrências
-     * correspondem a 3.155 Ligações com `atendida_em` preenchido, sem exceção.
-     * Enquanto ele ficou de fora, 45 Ligações por dia de campanha eram marcadas para
-     * retentativa depois de terem sido atendidas.
+     * `Reason: 4` é `AST_CONTROL_ANSWER`. Medido em 24/08/2026: as 2.387 ocorrências
+     * correspondem a 2.387 Ligações com `atendida_em` preenchido, sem exceção.
+     * Enquanto ele ficou de fora, essas 2.387 — 6,6% de tudo o que foi discado em
+     * 5 h 24 — eram marcadas para retentativa depois de terem sido atendidas.
      */
     #[Test]
     public function dialstatus_ANSWER_e_reason_4_afirmam_atendimento(): void

@@ -230,11 +230,11 @@ final class PoliticaTest extends TestCase
     }
 
     /**
-     * 🔴 A CORREÇÃO DE 48% DAS LIGAÇÕES, e ela cabe em duas linhas de tabela.
+     * 🔴 A CORREÇÃO DE 45,6% DAS LIGAÇÕES, e ela cabe em duas linhas de tabela.
      *
-     * Medido em 24/08/2026 sobre 8.829 Ligações de campanha real: 4.237 delas —
-     * 96,9% de tudo o que virava `desconhecido` — chegam por `OriginateResponse`
-     * sem código SIP nenhum, só com `Reason`. Nenhuma das 4.237 tinha
+     * Medido em 24/08/2026 sobre 36.098 resultados de campanha real: 16.443 deles —
+     * 85,7% de tudo o que virava `desconhecido` — chegam por `OriginateResponse`
+     * sem código SIP nenhum, só com `Reason`. Nenhum dos 16.443 tinha
      * `atendida_em` preenchido.
      *
      * A ação NÃO muda: continua `Retentar`, consumindo tentativa, fora da proteção
@@ -246,8 +246,8 @@ final class PoliticaTest extends TestCase
     public static function origincacoesSemCodigoSip(): array
     {
         return [
-            ['3', 'nao_atendeu',        'nao_atendeu', 'tocou ~50 s e ninguém atendeu (2.036 medidas)'],
-            ['0', 'sem_sinal_de_toque', 'nao_atendeu', 'nem tocou; morreu no nosso timeout de 28 s (2.201)'],
+            ['3', 'nao_atendeu',        'nao_atendeu', 'tocou ~50 s e ninguém atendeu (11.478 medidas)'],
+            ['0', 'sem_sinal_de_toque', 'nao_atendeu', 'nem tocou; morreu no nosso timeout de 28 s (4.965)'],
         ];
     }
 
@@ -296,10 +296,11 @@ final class PoliticaTest extends TestCase
     /**
      * `Reason: 4` é atendimento afirmado, e ignorá-lo tinha custo medido.
      *
-     * Em 24/08/2026 as 3.155 ocorrências de `Reason: 4` correspondem a 3.155
-     * Ligações com `atendida_em` — sem exceção. Antes deste caso, 45 delas por dia
-     * de campanha caíam em `desconhecido` e eram marcadas para RETENTATIVA: o
-     * discador ligaria de novo para quem já tinha atendido.
+     * Em 24/08/2026 as 2.387 ocorrências de `Reason: 4` correspondem a 2.387
+     * Ligações com `atendida_em` — sem exceção. Antes deste caso todas elas caíam
+     * em `desconhecido` e eram marcadas para RETENTATIVA: 6,6% de tudo o que foi
+     * discado em 5 h 24, ou seja, o discador ligaria de novo para uma em cada
+     * quinze pessoas que já tinham atendido.
      */
     #[Test]
     public function reason_4_e_atendimento_mesmo_sem_DialStatus(): void

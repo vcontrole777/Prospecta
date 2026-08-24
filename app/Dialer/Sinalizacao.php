@@ -16,15 +16,15 @@ namespace App\Dialer;
  * 🔴 E A MEDIÇÃO DE 24/08/2026 DERRUBOU A HIPÓTESE QUE ESTAVA AQUI.
  *
  * Este arquivo afirmava que o Q.850 consertaria as Ligações que viram
- * `desconhecido`. Ele não conserta. Medido sobre 8.829 Ligações de campanha real,
- * 46 minutos:
+ * `desconhecido`. Ele não conserta. Medido sobre 36.098 resultados de campanha
+ * real, 5 h 24 corridas:
  *
- * - 88,4% dos resultados chegam por `OriginateResponse`, e esse evento **não traz
+ * - 90,5% dos resultados chegam por `OriginateResponse`, e esse evento **não traz
  *   `Cause`, nem `TechCause`, nem `Cause-txt`**. Só traz `Reason`.
- * - O Q.850 só existe no `Hangup` (11,6%), e lá é REDUNDANTE com o código SIP que
+ * - O Q.850 só existe no `Hangup` (9,5%), e lá é REDUNDANTE com o código SIP que
  *   a `Politica` já lia: 19→480, 1→404, 21→403, 34→503.
- * - Dos 4.371 `desconhecido`: `Reason=3` 46,6%, `Reason=0` 50,4%, e Q.850 com
- *   informação nova (102, 127, 18, 28) apenas 2,3%.
+ * - Dos 19.188 `desconhecido`: `Reason=3` 59,8%, `Reason=0` 25,9%, `Reason=4`
+ *   12,4%, e Q.850 com informação nova (102, 127, 18, 28) apenas 1,9%.
  *
  * Mapear Q.850 consertaria ~2% do problema. Quem conserta é o `Reason`, e é por
  * isso que `controleDeOriginacao()` existe. O `q850` continua exposto porque é o
@@ -40,9 +40,10 @@ final class Sinalizacao
      * números são pequenos e plausíveis nas três tabelas — `3` é `RINGING` aqui,
      * "No route to destination" no Q.850 e nada no SIP.
      *
-     * `ATENDEU` está confirmado por medição direta: em 24/08/2026, as 3.155
-     * ocorrências de `Reason: 4` correspondem a 3.155 Ligações com `atendida_em`
-     * preenchido — sem uma exceção. `TOCANDO` e `NENHUM` são inferidos pela
+     * `ATENDEU` está confirmado por medição direta: em 24/08/2026, as 18.830
+     * originações sem código SIP se separam PERFEITAMENTE — `Reason: 4` deu 2.387
+     * de 2.387 com `atendida_em` preenchido; `Reason: 3` e `Reason: 0` deram 0 de
+     * 16.443. Nenhuma exceção nos dois sentidos. `TOCANDO` e `NENHUM` são inferidos pela
      * assinatura de duração, e a nota de `Politica` registra o que isso custa.
      */
     public const CONTROLE_NENHUM = 0;
@@ -72,7 +73,7 @@ final class Sinalizacao
         public readonly ?int $q850,
         /**
          * `Reason` do `OriginateResponse`. É POR AQUI QUE A DECISÃO SAI hoje, para
-         * 96,9% das Ligações que antes viravam `desconhecido`.
+         * 98,1% das Ligações que antes viravam `desconhecido`.
          */
         public readonly ?string $reason,
         /** `DialStatus`, com recurso ao `Reason` — a combinação que já valia. */
@@ -107,9 +108,10 @@ final class Sinalizacao
      * O evento afirma, por si só, que a chamada foi atendida?
      *
      * `Reason: 4` entra aqui porque é a mesma afirmação por outro campo, e porque
-     * deixá-lo de fora tinha custo medido: 45 Ligações atendidas por dia de
-     * campanha caíam em `desconhecido` e eram marcadas para RETENTATIVA — o
-     * discador ligaria de novo para quem já tinha atendido.
+     * deixá-lo de fora tinha custo medido, e MAIOR do que a primeira leitura
+     * sugeriu: 2.387 Ligações atendidas em 5 h 24 — 6,6% de tudo — caíam em
+     * `desconhecido` e eram marcadas para RETENTATIVA. O discador ligaria de novo
+     * para quem já tinha atendido, uma em cada quinze.
      */
     public function atendeu(): bool
     {
@@ -122,7 +124,7 @@ final class Sinalizacao
      *
      * `"SIP 503 Service Unavailable"` vira `503`. Prosa sem três dígitos seguidos
      * vira `null` — e como o `OriginateResponse` não traz código nenhum, este
-     * método devolve `null` em 88,4% dos eventos. É por isso que a `Politica` não
+     * método devolve `null` em 90,5% dos eventos. É por isso que a `Politica` não
      * pode depender só dele.
      */
     public function codigoNumerico(): ?int

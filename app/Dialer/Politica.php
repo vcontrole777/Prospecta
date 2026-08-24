@@ -22,7 +22,7 @@ namespace App\Dialer;
  * | Tocou e não atenderam      | —     | —     | 3      | ~50 s |
  * | Nem chegou a tocar         | —     | —     | 0      | ~28 s |
  *
- * As três últimas linhas foram medidas em 2026-08-24, sobre 8.829 Ligações de
+ * As três últimas linhas foram medidas em 2026-08-24, sobre 36.098 resultados de
  * campanha real. As seis primeiras vêm por `Hangup` e trazem código SIP; as três
  * últimas vêm por `OriginateResponse`, que não traz código SIP nenhum — e é por
  * isso que a coluna `Reason` precisou existir. Ver `Sinalizacao`.
@@ -103,8 +103,8 @@ final class Politica
 
         /*
          * Daqui para baixo não há código SIP: é o `OriginateResponse`, que traz só
-         * o `Reason`. São 88,4% dos eventos, e antes de 24/08/2026 caíam inteiros
-         * no `desconhecido` lá embaixo — 48% de TODAS as Ligações relatadas ao
+         * o `Reason`. São 90,5% dos eventos, e antes de 24/08/2026 caíam inteiros
+         * no `desconhecido` lá embaixo — 45,6% de TODAS as Ligações relatadas ao
          * operador como falha do sistema, quando nenhuma delas era.
          *
          * 🔴 SÓ O RÓTULO MUDA. `Acao`, `consomeTentativa` e `contaParaProtecao`
@@ -114,7 +114,7 @@ final class Politica
          */
         $controle = $sinal->controleDeOriginacao();
 
-        // Tocou e ninguém atendeu: resolve em ~50 s, e das 2.036 medidas NENHUMA
+        // Tocou e ninguém atendeu: resolve em ~50 s, e das 11.478 medidas NENHUMA
         // tinha `atendida_em`. É o caso do `487` sem o código SIP junto.
         if ($controle === Sinalizacao::CONTROLE_TOCANDO) {
             return new Decisao(Acao::Retentar, true, false, 'nao_atendeu', 'nao_atendeu', $sinal);
@@ -123,7 +123,7 @@ final class Politica
         /*
          * Nem chegou a tocar: nenhum quadro de controle em 28 s, que é o nosso
          * próprio `timeout_toque_seg` — a mediana medida foi 28,4 s, cravada nele.
-         * Das 2.201, nenhuma tinha `atendida_em`.
+         * Das 4.965, nenhuma tinha `atendida_em`.
          *
          * 🔴 MOTIVO PRÓPRIO DE PROPÓSITO, e não `nao_atendeu`. O que a medição NÃO
          * conseguiu decidir é se isto é "não atendeu" ou "número que não completa":
