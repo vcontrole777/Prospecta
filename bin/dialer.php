@@ -188,9 +188,6 @@ while ($rodando) {
             continue;
         }
 
-        // TechCause só existe a partir do Asterisk 22.7.0 — é o piso de versão.
-        $codigo = $ev['TechCause'] ?? $ev['Cause-txt'] ?? null;
-        $dialStatus = $ev['DialStatus'] ?? ($ev['Reason'] ?? null);
         // Três OBSERVADORES do mesmo fato, combinados por OU. O primeiro cobre o modo
         // `Dial`, que o produto não usa hoje mas pode usar; o segundo é o `Newstate`
         // desta chamada; o terceiro é o `fastagi`, que roda DENTRO da chamada atendida e
@@ -199,18 +196,24 @@ while ($rodando) {
         //
         // Nenhum dos três decide nada, os três só relatam. Redundância de OBSERVAÇÃO não
         // é regra duplicada.
-        $atendeu = ($ev['DialStatus'] ?? '') === 'ANSWER'
-            || ($atendeuDaLigacao[$lig] ?? false)
+        //
+        // 🔴 O PRIMEIRO SAIU DAQUI, e a conta é a mesma: ele lia `DialStatus` do próprio
+        // evento, e é a `Politica` que recebe o evento agora. Os dois que sobraram são os
+        // que ela NÃO tem como ver — um deles consulta o banco.
+        $atendeu = ($atendeuDaLigacao[$lig] ?? false)
             || $fila->foiAtendida($lig);
 
-        $d = $politica->decidir($codigo, $dialStatus, $atendeu);
+        // As três linhas de extração que ficavam aqui foram para `Dialer\Sinalizacao`.
+        // Eram a única cópia da regra de leitura e não tinham teste; é onde os 77,3%
+        // descritos abaixo se perdem. O que foi lido volta em `$d->sinal`.
+        $d = $politica->decidir($ev, $atendeu);
         $campanhaId = $campanhaDaLigacao[$lig];
 
         // Diagnóstico entra sempre, inclusive em chamada atendida. O
         // `codigo_sip IS NULL` preserva o PRIMEIRO evento, porque DialEnd e
         // Hangup chegam os dois para a mesma Ligação e o segundo é mais pobre.
         $pdo->prepare('UPDATE ligacao SET codigo_sip = :c, hangup_cause = :h WHERE id = :id AND codigo_sip IS NULL')
-            ->execute(['c' => $codigo, 'h' => $ev['Cause-txt'] ?? null, 'id' => $lig]);
+            ->execute(['c' => $d->sinal?->codigoSip, 'h' => $d->sinal?->hangupCause, 'id' => $lig]);
 
         // 🔴 FECHA a Ligação, e só quando o dialer é o dono do desfecho — isto
         // é, quando não foi atendida e o `fastagi` não rodou. Ver `Decisao`.
@@ -274,9 +277,9 @@ while ($rodando) {
          * regra na `Politica` e estas três chaves podem sair do log.
          */
         $log->linha('resultado', $d->motivo, [
-            'ligacao' => $lig, 'acao' => $d->acao->name, 'codigo' => $codigo,
-            'q850' => $ev['Cause'] ?? null,
-            'reason' => $ev['Reason'] ?? null,
+            'ligacao' => $lig, 'acao' => $d->acao->name, 'codigo' => $d->sinal?->codigoSip,
+            'q850' => $d->sinal?->q850,
+            'reason' => $d->sinal?->reason,
             // NÃO `evento`: essa chave é autoritativa no `Registro` e seria descartada em
             // silêncio pela união de arrays — é a armadilha que o docblock dele descreve.
             'ami_evento' => $tipo,

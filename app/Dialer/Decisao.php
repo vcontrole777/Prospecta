@@ -30,6 +30,17 @@ final class Decisao
          * Um dos valores do enum `ligacao.desfecho`.
          */
         public readonly ?string $desfecho = null,
+        /**
+         * O que a sinalização disse, já lido.
+         *
+         * Existe para o chamador GRAVAR e REGISTRAR sem re-extrair o evento. As
+         * três linhas que faziam isso em `bin/dialer.php` eram a única cópia da
+         * regra de leitura, e ficavam fora de qualquer teste.
+         *
+         * `null` quando a `Decisao` é construída à mão num teste que não fala de
+         * sinalização.
+         */
+        public readonly ?Sinalizacao $sinal = null,
     ) {
     }
 }
