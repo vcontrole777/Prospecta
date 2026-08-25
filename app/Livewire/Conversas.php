@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire;
 
+use App\Dominio\ErroDeDominio;
+use App\Dominio\Placeholder;
 use App\Suporte\Instante;
 use App\Whatsapp\JanelaDeAtendimento;
 use DateTimeImmutable;
@@ -49,6 +51,7 @@ final class Conversas extends Component
             'conversas' => $this->lista($agora),
             'mensagens' => $this->selecionada === null ? [] : $this->mensagens($this->selecionada),
             'detalhe' => $this->selecionada === null ? null : $this->detalhe($this->selecionada, $agora),
+            'respostasRapidas' => $this->respostasRapidas(),
         ]);
     }
 
@@ -57,6 +60,119 @@ final class Conversas extends Component
         $this->selecionada = $id;
         $this->resposta = '';
         $this->resetErrorBag();
+    }
+
+    /**
+     * Põe uma resposta pronta na caixa. NÃO envia.
+     *
+     * 🔴 PREENCHE EM VEZ DE ENVIAR, e a diferença de um clique é deliberada. A
+     * mensagem é irreversível e vai para uma pessoa real; clique errado não tem
+     * volta. Preenchendo, o operador confere e ajusta, e o botão de enviar está logo
+     * ao lado. É o que o próprio WhatsApp Business faz, e pelo mesmo motivo.
+     *
+     * 🔴 O PLACEHOLDER É RESOLVIDO AQUI, não no cadastro, porque só aqui existe um
+     * Lead para dar valor às colunas. E é a MESMA classe que o `fastagi` usa para
+     * montar a Mensagem da chamada — duas implementações da mesma substituição
+     * divergiriam, que é o contra-exemplo registrado no docblock dela.
+     */
+    public function usarResposta(int $id): void
+    {
+        $this->resetErrorBag();
+
+        $texto = DB::table('resposta_rapida')
+            ->where('id', $id)->where('ativo', 1)->value('texto');
+
+        if (! is_string($texto)) {
+            return;
+        }
+
+        $placeholder = new Placeholder();
+
+        // Texto sem Placeholder não precisa de Lead nenhum: entra como está, e é o
+        // caso da maioria das respostas prontas.
+        if ($placeholder->colunasCitadas($texto) === []) {
+            $this->resposta = $texto;
+
+            return;
+        }
+
+        $dados = $this->dadosDoLead();
+
+        /*
+         * 🔴 CONVERSA SEM LEAD É CASO REAL, não defeito. `conversa.lead_id` é
+         * anulável: número desconhecido que escreveu para o WhatsApp abre Conversa
+         * sem Lead, e aí não há coluna nenhuma para substituir.
+         *
+         * Dizer isso com o motivo é melhor que preencher com lacuna — "Olá, ," saindo
+         * para uma pessoa real é pior que não preencher.
+         */
+        if ($dados === null) {
+            $this->addError(
+                'resposta',
+                'Esta resposta usa dados do Lead e esta conversa não tem um: o número '
+                . 'escreveu sem estar em nenhuma Campanha. Escolha outra ou escreva à mão.',
+            );
+
+            return;
+        }
+
+        try {
+            $this->resposta = $placeholder->resolverTexto($texto, $dados);
+        } catch (ErroDeDominio $e) {
+            // A classe falha com causa NOMEADA em vez de substituir por vazio, e é
+            // essa causa que o operador precisa ler para saber qual coluna falta.
+            $this->addError('resposta', $e->getMessage());
+        }
+    }
+
+    /**
+     * As colunas do Lead desta Conversa, ou nulo quando não há Lead.
+     *
+     * @return array<string,string|int|float|null>|null
+     */
+    private function dadosDoLead(): ?array
+    {
+        if ($this->selecionada === null) {
+            return null;
+        }
+
+        $leadId = DB::table('conversa')->where('id', $this->selecionada)->value('lead_id');
+        if (! is_numeric($leadId)) {
+            return null;
+        }
+
+        $extras = DB::table('leads')->where('id', (int) $leadId)->value('dados_extras');
+        $decodificado = is_string($extras) ? json_decode($extras, true) : null;
+
+        $saida = [];
+        if (is_array($decodificado)) {
+            foreach ($decodificado as $k => $v) {
+                // Valor não escalar é DESCARTADO em vez de convertido: `resolverTexto`
+                // então falha com "coluna ausente", que é a verdade, em vez de
+                // substituir por "Array".
+                if (is_string($v) || is_int($v) || is_float($v) || $v === null) {
+                    $saida[(string) $k] = $v;
+                }
+            }
+        }
+
+        return $saida;
+    }
+
+    /**
+     * As respostas prontas ativas, na ordem escolhida pelo operador.
+     *
+     * @return list<array{id:int, titulo:string}>
+     */
+    private function respostasRapidas(): array
+    {
+        $saida = [];
+        foreach (DB::table('resposta_rapida')
+            ->where('ativo', 1)->orderBy('ordem')->orderBy('id')->get() as $r) {
+            $saida[] = ['id' => (int) $r->id, 'titulo' => (string) $r->titulo];
+        }
+
+        return $saida;
     }
 
     /**

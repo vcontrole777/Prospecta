@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Livewire\CampanhaForm;
 use App\Livewire\Audios;
 use App\Livewire\Imagens;
+use App\Livewire\RespostasRapidas;
 use App\Livewire\Binas;
 use App\Livewire\Bloqueios;
 use App\Livewire\Campanhas;
@@ -87,6 +88,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/rota', Rota::class)->name('rota');
     Route::get('/integracoes', Integracoes::class)->name('integracoes');
     Route::get('/conversas', Conversas::class)->name('conversas');
+    Route::get('/respostas-rapidas', RespostasRapidas::class)->name('respostas-rapidas');
 
     /*
     | A gravação NUNCA é servida direto do disco. Vem por aqui, atrás de `auth`, e o
