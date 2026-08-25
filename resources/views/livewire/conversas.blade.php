@@ -150,6 +150,28 @@
                                     mensagem; até lá, só template aprovado, pelo Disparo da Campanha.
                                 </p>
                             @else
+                                {{-- Respostas prontas. Só aparecem AQUI dentro, junto da
+                                     caixa: elas herdam de graça a regra de que a caixa só
+                                     existe quando o envio pode dar certo. Botão de resposta
+                                     rápida com a janela fechada seria a promessa falsa que
+                                     esta tela evita.
+
+                                     🔴 O clique PREENCHE, não envia. A mensagem é
+                                     irreversível e vai para uma pessoa real; o operador
+                                     confere e ajusta, e o Enviar está logo abaixo. --}}
+                                @if ($respostasRapidas !== [])
+                                    <div class="mb-3 flex flex-wrap gap-2">
+                                        @foreach ($respostasRapidas as $r)
+                                            <button type="button"
+                                                    wire:click="usarResposta({{ $r['id'] }})"
+                                                    class="border border-[var(--rule)] px-2 py-1 text-xs
+                                                           hover:border-primary hover:text-primary">
+                                                {{ $r['titulo'] }}
+                                            </button>
+                                        @endforeach
+                                    </div>
+                                @endif
+
                                 <form wire:submit="responder" class="flex flex-col gap-2">
                                     <x-textarea wire:model="resposta"
                                                 placeholder="Escreva a resposta…"
