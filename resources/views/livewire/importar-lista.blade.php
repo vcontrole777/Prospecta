@@ -47,6 +47,44 @@
                 <span>{{ count($colunas) }} colunas</span>
             </div>
 
+            {{-- 🔴 A PRIMEIRA LINHA PARECE DADO?
+                 O importador SEMPRE trata a primeira linha como cabeçalho, e não tem
+                 opção de "arquivo sem cabeçalho". Quando o CSV vem sem ela, a primeira
+                 PESSOA vira o nome das colunas e é perdida — e todo Lead do arquivo
+                 fica com colunas chamadas, por exemplo, `247.942.998-93`.
+
+                 Aviso e não recusa: cabeçalho legítimo pode ter nome estranho, e quem
+                 sabe é quem exportou a planilha. --}}
+            @if ($cabecalhoSuspeito !== [])
+                <div class="border border-warning p-4">
+                    <p class="font-medium text-warning">
+                        ⚠ A primeira linha do arquivo parece ser <strong>dado</strong>, não cabeçalho
+                    </p>
+
+                    <div class="mt-2 flex flex-wrap gap-2">
+                        @foreach ($cabecalhoSuspeito as $sus)
+                            <span class="border border-[var(--rule)] px-2 py-1 text-xs">
+                                <span class="identificador">{{ $sus['coluna'] }}</span>
+                                <span class="text-base-content/60">— {{ $sus['motivo'] }}</span>
+                            </span>
+                        @endforeach
+                    </div>
+
+                    <p class="mt-3 text-sm text-base-content/70">
+                        Se for mesmo dado, <strong>duas coisas acontecem em silêncio</strong>: essa
+                        primeira pessoa é perdida — ela vira o nome das colunas e nunca é discada —
+                        e todos os Leads ficam com colunas de nome errado. O Placeholder do template
+                        deixa de achar <span class="identificador">nome</span>, e o disparo falha
+                        depois, com a Campanha já no ar.
+                    </p>
+                    <p class="mt-2 text-sm text-base-content/70">
+                        Nesse caso, cancele, acrescente uma linha de cabeçalho na planilha e importe
+                        de novo. Se a primeira linha for cabeçalho mesmo — CRM às vezes exporta
+                        código de campo como nome —, pode seguir.
+                    </p>
+                </div>
+            @endif
+
             {{-- A conferência é o motivo de existirem duas etapas. Importar direto
                  trocaria um clique por uma lista de 50 mil Leads com a coluna errada
                  no telefone — que só aparece depois de o dialer discar. --}}
