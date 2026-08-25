@@ -357,7 +357,27 @@ while (! $parada->pedida()) {
                 continue;
             }
 
-            $envio = $whatsapp->enviarTexto($telefone, $mensagem, 'conversa:' . $conversaId);
+            /*
+             * Texto puro ou texto COM BOTÃO DE LINK, e quem decide são as duas colunas
+             * que a tela gravou na mensagem.
+             *
+             * 🔴 OS DOIS EM PAR, sempre. A tela recusa um só preenchido antes de
+             * gravar; conferir aqui de novo é barato e cobre a linha que tenha vindo
+             * de outro caminho — SQL manual, restauração parcial. Botão sem URL a Meta
+             * recusa, e a mensagem inteira se perde.
+             */
+            $botaoTexto = texto($r['botao_texto'] ?? null);
+            $botaoUrl = texto($r['botao_url'] ?? null);
+
+            $envio = $botaoTexto !== '' && $botaoUrl !== ''
+                ? $whatsapp->enviarTextoComBotao(
+                    $telefone,
+                    $mensagem,
+                    $botaoTexto,
+                    $botaoUrl,
+                    'conversa:' . $conversaId,
+                )
+                : $whatsapp->enviarTexto($telefone, $mensagem, 'conversa:' . $conversaId);
 
             $d = $politica->decidir($envio, numero($r['tentativas'] ?? null) + 1, $conf['max_tentativas']);
             $fila->aplicar($acaoId, $d, $envio);

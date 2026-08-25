@@ -42,6 +42,19 @@ final class Conversas extends Component
     /** O que o operador está escrevendo. Não vai para a URL — é rascunho, não endereço. */
     public string $resposta = '';
 
+    /**
+     * Botão de link ANEXADO à resposta pendente, quando veio de uma resposta rápida.
+     *
+     * 🔴 SEPARADO DA CAIXA DE TEXTO porque botão não é texto: é dado estruturado, e
+     * não cabe num `textarea`. Ficando aqui, o operador continua editando o texto
+     * livremente e vê o botão como etiqueta, com um "remover" ao lado — a revisão
+     * antes de enviar continua existindo, que é a razão de o clique preencher em vez
+     * de enviar.
+     */
+    public string $botaoTexto = '';
+
+    public string $botaoUrl = '';
+
     public function render(): View
     {
         $fuso = new DateTimeZone(self::texto(config('app.timezone')) ?: 'UTC');
@@ -59,7 +72,17 @@ final class Conversas extends Component
     {
         $this->selecionada = $id;
         $this->resposta = '';
+        // Trocar de conversa descarta o botão junto: ele pertencia ao rascunho
+        // anterior, e mandá-lo para outra pessoa seria o pior tipo de sobra.
+        $this->removerBotao();
         $this->resetErrorBag();
+    }
+
+    /** Tira o botão do rascunho sem mexer no texto já escrito. */
+    public function removerBotao(): void
+    {
+        $this->botaoTexto = '';
+        $this->botaoUrl = '';
     }
 
     /**
@@ -79,12 +102,21 @@ final class Conversas extends Component
     {
         $this->resetErrorBag();
 
-        $texto = DB::table('resposta_rapida')
-            ->where('id', $id)->where('ativo', 1)->value('texto');
+        $linha = DB::table('resposta_rapida')->where('id', $id)->where('ativo', 1)->first();
+        if ($linha === null) {
+            return;
+        }
 
+        $texto = $linha->texto;
         if (! is_string($texto)) {
             return;
         }
+
+        // O botão é anexado ANTES da substituição: se o Placeholder falhar, o
+        // `addError` sai daqui com o botão já preso a um texto que não foi
+        // preenchido. Por isso ele é limpo em cada falha, logo abaixo.
+        $botaoTexto = (string) ($linha->botao_texto ?? '');
+        $botaoUrl = (string) ($linha->botao_url ?? '');
 
         $placeholder = new Placeholder();
 
@@ -92,6 +124,8 @@ final class Conversas extends Component
         // caso da maioria das respostas prontas.
         if ($placeholder->colunasCitadas($texto) === []) {
             $this->resposta = $texto;
+            $this->botaoTexto = $botaoTexto;
+            $this->botaoUrl = $botaoUrl;
 
             return;
         }
@@ -107,6 +141,7 @@ final class Conversas extends Component
          * para uma pessoa real é pior que não preencher.
          */
         if ($dados === null) {
+            $this->removerBotao();
             $this->addError(
                 'resposta',
                 'Esta resposta usa dados do Lead e esta conversa não tem um: o número '
@@ -118,7 +153,10 @@ final class Conversas extends Component
 
         try {
             $this->resposta = $placeholder->resolverTexto($texto, $dados);
+            $this->botaoTexto = $botaoTexto;
+            $this->botaoUrl = $botaoUrl;
         } catch (ErroDeDominio $e) {
+            $this->removerBotao();
             // A classe falha com causa NOMEADA em vez de substituir por vazio, e é
             // essa causa que o operador precisa ler para saber qual coluna falta.
             $this->addError('resposta', $e->getMessage());
@@ -249,6 +287,11 @@ final class Conversas extends Component
             'direcao' => 'saida',
             'tipo' => 'text',
             'texto' => trim($this->resposta),
+            // O botão viaja NA MENSAGEM, não numa Ação de tipo novo: o caminho de
+            // envio continua sendo um só, e o worker escolhe entre texto e interativo
+            // olhando estas duas colunas.
+            'botao_texto' => $this->botaoTexto === '' ? null : $this->botaoTexto,
+            'botao_url' => $this->botaoUrl === '' ? null : $this->botaoUrl,
             'status' => null,     // nulo = ainda não enviada
             'criado_em' => now(),
         ]);
@@ -262,6 +305,7 @@ final class Conversas extends Component
         ]);
 
         $this->resposta = '';
+        $this->removerBotao();
         $this->dispatch('resposta-enfileirada');
     }
 

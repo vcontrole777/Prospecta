@@ -139,7 +139,7 @@ final class FilaDeAcoes
         try {
             $st = $this->pdo->prepare(
                 "SELECT a.id, a.tentativas, a.referencia_id,
-                        m.texto, m.conversa_id,
+                        m.texto, m.conversa_id, m.botao_texto, m.botao_url,
                         c.telefone, c.ultima_entrada_em
                    FROM acao a
                    JOIN conversa_mensagem m ON m.id = a.referencia_id

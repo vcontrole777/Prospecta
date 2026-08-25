@@ -172,6 +172,21 @@
                                     </div>
                                 @endif
 
+                                {{-- Botão anexado ao rascunho. Fica FORA da caixa porque
+                                     botão não é texto — é dado estruturado, e não cabe num
+                                     textarea. Mostrado como etiqueta com "remover", para a
+                                     revisão antes de enviar continuar existindo. --}}
+                                @if ($botaoTexto !== '')
+                                    <div class="mb-2 flex items-center gap-2 border border-[var(--rule)] px-2 py-1 text-xs">
+                                        <span>
+                                            Botão: <span class="identificador">{{ $botaoTexto }}</span>
+                                            → <span class="identificador">{{ $botaoUrl }}</span>
+                                        </span>
+                                        <button type="button" wire:click="removerBotao"
+                                                class="text-error hover:underline">remover</button>
+                                    </div>
+                                @endif
+
                                 <form wire:submit="responder" class="flex flex-col gap-2">
                                     <x-textarea wire:model="resposta"
                                                 placeholder="Escreva a resposta…"

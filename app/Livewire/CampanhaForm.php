@@ -268,7 +268,11 @@ final class CampanhaForm extends Component
 
     public function render(): View
     {
-        return view('livewire.campanha-form', ['audios' => $this->audios(), 'imagens' => $this->imagens()]);
+        return view('livewire.campanha-form', [
+            'audios' => $this->audios(),
+            'imagens' => $this->imagens(),
+            'colunasDosLeads' => $this->colunasDosLeads(),
+        ]);
     }
 
     public function adicionarParametro(): void
@@ -774,6 +778,67 @@ final class CampanhaForm extends Component
         }
 
         return null;
+    }
+
+    /**
+     * As colunas que os Leads desta Campanha realmente têm.
+     *
+     * 🔴 EXISTE PORQUE O CAMPO DE PARÂMETRO ERA UM TEXTO EM BRANCO. O operador tinha
+     * que ADIVINHAR o nome da coluna para mapear `{{1}}`, e errar não dá erro na
+     * tela: dá `template_mapa_invalido` no worker, uma Ligação por vez, depois que a
+     * Campanha já está no ar.
+     *
+     * A fonte é `leads.dados_extras`, e não `campanha.colunas` — essa coluna existe
+     * no esquema e NINGUÉM escreve nela; estava nula em todas as Campanhas em
+     * 25/08/2026. Ler dali seria oferecer uma lista sempre vazia.
+     *
+     * 🔴 E DENUNCIA CONJUNTO DIVERGENTE. Quando a mesma Campanha tem Leads com
+     * conjuntos de colunas diferentes, é sinal de importação sem cabeçalho: o CSV
+     * entrou e a primeira linha de dados virou o nome das colunas. Medido em
+     * 25/08/2026 — a Campanha 3 tinha 29.554 Leads com `["cpf","nome"]` e 9.997 com
+     * `["MILTON NATAL","247.942.998-93"]`, que são o nome e o CPF de uma pessoa. Um
+     * mapeamento que funcionasse para uns falharia para os outros, calado.
+     *
+     * @return array{lista: list<string>, conjuntos: int, sem_leads: bool}
+     */
+    private function colunasDosLeads(): array
+    {
+        if ($this->campanhaId === null) {
+            return ['lista' => [], 'conjuntos' => 0, 'sem_leads' => true];
+        }
+
+        // Agrupado por conjunto de chaves: é o agrupamento que revela a divergência.
+        // `LIMIT 10` porque mais que isso já é caso patológico e a tela não melhora
+        // listando tudo.
+        $linhas = DB::select(
+            'SELECT JSON_KEYS(dados_extras) AS chaves, COUNT(*) AS n
+               FROM leads
+              WHERE campanha_id = ? AND dados_extras IS NOT NULL
+              GROUP BY chaves ORDER BY n DESC LIMIT 10',
+            [$this->campanhaId],
+        );
+
+        $lista = [];
+        foreach ($linhas as $linha) {
+            $l = (array) $linha;
+            $chaves = json_decode(self::texto($l['chaves'] ?? null), true);
+            if (! is_array($chaves)) {
+                continue;
+            }
+            foreach ($chaves as $c) {
+                if (is_string($c) && ! in_array($c, $lista, true)) {
+                    $lista[] = $c;
+                }
+            }
+        }
+
+        sort($lista);
+
+        return [
+            'lista' => $lista,
+            'conjuntos' => count($linhas),
+            'sem_leads' => $linhas === [],
+        ];
     }
 
     /**
