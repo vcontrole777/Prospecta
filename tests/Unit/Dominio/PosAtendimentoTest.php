@@ -44,7 +44,7 @@ final class PosAtendimentoTest extends TestCase
     public function os_argumentos_saem_na_ordem_declarada(): void
     {
         $this->assertSame(
-            ['3500', '4000', '800', '5000', '100', '50', '3', '256', '5000'],
+            ['4500', '4000', '800', '5000', '100', '50', '6', '256', '5000'],
             PosAtendimento::padrao()->argumentos(),
         );
     }
@@ -76,11 +76,11 @@ final class PosAtendimentoTest extends TestCase
             'pos_limiar_silencio' => 300,
         ]);
 
-        $this->assertSame(3500, $pos->valor('pos_silencio_inicial_ms'));
+        $this->assertSame(4500, $pos->valor('pos_silencio_inicial_ms'));
         $this->assertSame(4000, $pos->valor('pos_saudacao_max_ms'));
         // Zero não é valor válido para nenhum dos nove — o menor mínimo é 1 —, então
         // zero significa "a coluna não disse nada", e não "o operador pediu zero".
-        $this->assertSame(3, $pos->valor('pos_palavras_max'));
+        $this->assertSame(6, $pos->valor('pos_palavras_max'));
         $this->assertSame(300, $pos->valor('pos_limiar_silencio'));
     }
 
@@ -167,13 +167,47 @@ final class PosAtendimentoTest extends TestCase
         );
     }
 
+    /**
+     * 🔴 O TETO DE PALAVRAS PRECISA CABER NUMA SAUDAÇÃO HUMANA.
+     *
+     * O default era 3 — o do `amd.conf` do Asterisk — e por isso quem atendia
+     * dizendo "alô, quem tá falando?" era declarado MÁQUINA e levava desligada na
+     * cara. Medido em 24/08/2026: 3.931 Ligações numa tarde com a causa
+     * `MAXWORDS-4-3`, ou seja, quatro palavras detectadas contra um teto de três.
+     *
+     * As frases abaixo são o contrato em prosa: são as formas normais de atender o
+     * telefone em português, e nenhuma delas pode ser confundida com secretária —
+     * que diz dez, quinze palavras. Se alguém baixar o default, quebra aqui, e o
+     * teste diz por quê em vez de só acusar um número diferente.
+     */
+    #[Test]
+    public function o_default_de_palavras_cabe_nas_saudacoes_humanas_medidas(): void
+    {
+        $saudacoes = [
+            'alô' => 1,
+            'alô quem fala' => 3,
+            'alô quem tá falando' => 4,
+            'alô bom dia quem fala' => 5,
+        ];
+
+        $teto = PosAtendimento::padrao()->valor('pos_palavras_max');
+
+        foreach ($saudacoes as $frase => $palavras) {
+            $this->assertGreaterThanOrEqual(
+                $palavras,
+                $teto,
+                "\"{$frase}\" tem {$palavras} palavras e seria classificada como MÁQUINA",
+            );
+        }
+    }
+
     #[Test]
     public function com_troca_so_o_que_foi_pedido(): void
     {
         $pos = PosAtendimento::padrao()->com(['pos_palavras_max' => 7]);
 
         $this->assertSame(7, $pos->valor('pos_palavras_max'));
-        $this->assertSame(3500, $pos->valor('pos_silencio_inicial_ms'));
+        $this->assertSame(4500, $pos->valor('pos_silencio_inicial_ms'));
         $this->assertSame(9, count($pos->paraColunas()));
     }
 

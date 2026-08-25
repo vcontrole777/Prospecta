@@ -58,7 +58,7 @@ final class Configuracao extends Component
 
     public bool $classificador_pos_ativo = true;
 
-    public int $pos_silencio_inicial_ms = 3500;
+    public int $pos_silencio_inicial_ms = 4500;
 
     public int $pos_saudacao_max_ms = 4000;
 
@@ -70,7 +70,7 @@ final class Configuracao extends Component
 
     public int $pos_silencio_entre_palavras_ms = 50;
 
-    public int $pos_palavras_max = 3;
+    public int $pos_palavras_max = 6;
 
     public int $pos_limiar_silencio = 256;
 
