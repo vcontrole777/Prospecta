@@ -35,7 +35,7 @@ final class TemplatesAprovados
     }
 
     /**
-     * @return array{ok:bool, templates:list<array{chave:string, nome:string, idioma:string, parametros:int, corpo:string, rotulo:string}>, erro:?string}
+     * @return array{ok:bool, templates:list<array{chave:string, nome:string, idioma:string, parametros:int, cabecalho:string, corpo:string, rotulo:string}>, erro:?string}
      */
     public function listar(string $token, string $waba): array
     {
@@ -106,6 +106,7 @@ final class TemplatesAprovados
                 'nome' => $t['name'],
                 'idioma' => $idioma,
                 'parametros' => self::parametros($corpoTexto),
+                'cabecalho' => self::cabecalho($t),
                 'corpo' => $corpoTexto,
                 'rotulo' => $t['name'] . ' (' . ($idioma !== '' ? $idioma : 'sem idioma') . ')',
             ];
@@ -136,6 +137,34 @@ final class TemplatesAprovados
         foreach (is_array($t['components'] ?? null) ? $t['components'] : [] as $c) {
             if (is_array($c) && ($c['type'] ?? null) === 'BODY' && is_string($c['text'] ?? null)) {
                 return $c['text'];
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * O FORMATO do cabeçalho: `IMAGE`, `VIDEO`, `DOCUMENT`, `TEXT` — ou vazio.
+     *
+     * 🔴 ESTA CLASSE ERA CEGA PARA O `HEADER`, e a cegueira custou dois templates.
+     *
+     * Ela filtrava `type === 'BODY'` e ignorava o resto, então a tela não tinha como
+     * saber que um template exige imagem, nem como pedi-la ao operador. Medido em
+     * 25/08/2026: `abordagem_liv_pts` e `abordagem_liv_pts_2` têm `HEADER
+     * format=IMAGE` e falhavam com `(#132000)` em todo envio.
+     *
+     * Devolver o formato — e não um booleano — é o que permite a tela cobrar a coisa
+     * certa quando o dia de suportar vídeo ou documento chegar, sem mudar a leitura.
+     *
+     * @param  array<string,mixed>  $t
+     */
+    private static function cabecalho(array $t): string
+    {
+        foreach (is_array($t['components'] ?? null) ? $t['components'] : [] as $c) {
+            if (is_array($c) && ($c['type'] ?? null) === 'HEADER') {
+                $f = $c['format'] ?? null;
+
+                return is_string($f) ? $f : '';
             }
         }
 

@@ -7,6 +7,7 @@ namespace App\Livewire;
 use App\Seguranca\Cofre;
 use App\Whatsapp\TemplatesAprovados;
 use App\Worker\TransporteCurl;
+use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -107,7 +108,7 @@ final class CampanhaForm extends Component
      * qualquer campo do formulário; buscar aqui seria uma chamada à Graph API por
      * caractere — lento para o operador e abuso da cota da Meta.
      *
-     * @var list<array{chave:string, nome:string, idioma:string, parametros:int, corpo:string, rotulo:string}>
+     * @var list<array{chave:string, nome:string, idioma:string, parametros:int, cabecalho:string, corpo:string, rotulo:string}>
      */
     public array $templates = [];
 
@@ -149,6 +150,15 @@ final class CampanhaForm extends Component
      * @var list<string>
      */
     public array $parametros = [];
+
+    /**
+     * Imagem do cabecalho, quando o template exige uma.
+     *
+     * SO FAZ SENTIDO PARA TEMPLATE COM `HEADER format=IMAGE`, e mandar cabecalho
+     * onde ele nao e pedido da o MESMO erro 132000 ao contrario -- parametro a mais.
+     * Quem decide e o formato declarado pelo template, nao o operador.
+     */
+    public ?int $imagem_id = null;
 
     public function mount(?int $id = null): void
     {
@@ -241,11 +251,24 @@ final class CampanhaForm extends Component
             ksort($porPosicao);
             $this->parametros = array_values($porPosicao);
         }
+
+        $this->imagem_id = self::inteiro($c['imagem_id'] ?? null) ?: null;
+    }
+
+    /**
+     * O template escolhido exige imagem no cabecalho?
+     *
+     * Lido do que a Meta declara, nao do que o operador acha. E esta pergunta que
+     * decide se a tela cobra a imagem e se o envio manda o componente `header`.
+     */
+    public function getExigeImagemProperty(): bool
+    {
+        return ($this->getTemplateAtualProperty()['cabecalho'] ?? '') === 'IMAGE';
     }
 
     public function render(): View
     {
-        return view('livewire.campanha-form', ['audios' => $this->audios()]);
+        return view('livewire.campanha-form', ['audios' => $this->audios(), 'imagens' => $this->imagens()]);
     }
 
     public function adicionarParametro(): void
@@ -373,6 +396,8 @@ final class CampanhaForm extends Component
             'template_nome' => trim($this->template_nome) === '' ? null : trim($this->template_nome),
             'template_idioma' => $this->template_idioma,
             'template_mapa' => $mapa === [] ? null : json_encode($mapa, JSON_UNESCAPED_UNICODE),
+            // Nulo quando o template nao pede imagem: cabecalho a mais e recusa igual.
+            'imagem_id' => $this->getExigeImagemProperty() ? $this->imagem_id : null,
         ];
 
         unset($dados);
@@ -456,7 +481,7 @@ final class CampanhaForm extends Component
         }
     }
 
-    /** @return array<string, list<string>> */
+    /** @return array<string, list<string|Closure>> */
     private function regras(): array
     {
         return [
@@ -520,8 +545,57 @@ final class CampanhaForm extends Component
                 : ['nullable', 'string', 'max:255'],
             'template_idioma' => ['required', 'string', 'max:10'],
 
-            'parametros' => ['array', 'max:10'],
+            /*
+             * A QUANTIDADE TEM QUE BATER COM O QUE O TEMPLATE PEDE.
+             *
+             * Sem esta regra a tela deixava salvar Campanha IMPOSSIVEL: medido em
+             * 25/08/2026, a Campanha 3 tinha `template_mapa` NULL para um template
+             * cujo corpo e "Ola, {{1}}!", e todo disparo morria com `(#132000)
+             * Number of parameters does not match the expected number of params`.
+             * O operador so descobria na primeira mensagem.
+             *
+             * A contagem esperada JA ESTAVA carregada na lista de templates
+             * (`parametros:int`), so nao era comparada com nada. Recusar aqui e o
+             * mesmo principio de `Conversas::responder`: nao deixar nascer o que se
+             * sabe que vai falhar.
+             *
+             * Template digitado a mao (`template_manual`) nao entra na conferencia:
+             * ele nao esta na lista da Meta, entao nao ha contagem para comparar, e
+             * inventar uma recusaria configuracao legitima.
+             */
+            'parametros' => ['array', 'max:10', function (string $campo, mixed $valor, Closure $falha): void {
+                $esperado = $this->getTemplateAtualProperty()['parametros'] ?? null;
+                if (! is_int($esperado)) {
+                    return;
+                }
+
+                $tem = is_array($valor) ? count($valor) : 0;
+                if ($tem === $esperado) {
+                    return;
+                }
+
+                $falha($esperado === 0
+                    ? 'Este template nao usa parametro nenhum, e ha ' . $tem . ' mapeado(s). Remova.'
+                    : sprintf(
+                        'Este template usa %d parametro(s) e ha %d mapeado(s). A Meta recusa o '
+                        . 'envio inteiro quando a conta nao bate.',
+                        $esperado,
+                        $tem,
+                    ));
+            }],
             'parametros.*' => ['required', 'string', 'max:255'],
+
+            /*
+             * Imagem obrigatoria quando o template declara `HEADER format=IMAGE`.
+             *
+             * Mesma familia do defeito acima e o mesmo erro da Meta: faltando o
+             * componente de cabecalho, ela recusa com 132000 falando de
+             * "parameters", sem mencionar imagem -- o que manda quem investiga para
+             * o lado errado. Ver `Worker\Whatsapp::enviarTemplate`.
+             */
+            'imagem_id' => $this->getExigeImagemProperty()
+                ? ['required', 'integer', 'exists:imagem,id']
+                : ['nullable', 'integer'],
         ];
     }
 
@@ -535,6 +609,7 @@ final class CampanhaForm extends Component
             'tecla_opt_in.different' => 'As teclas de opt-in e opt-out têm que ser diferentes.',
             'template_nome.required' => 'No WhatsApp o nome do template é obrigatório: sem ele o envio falha.',
             'parametros.*.required' => 'Parâmetro em branco — remova a linha ou preencha o nome da coluna.',
+            'imagem_id.required' => 'Este template tem cabecalho de imagem: escolha uma da galeria, senao a Meta recusa o disparo inteiro.',
             'campos.required' => 'Campanha de captura precisa de ao menos um campo, senão ela liga e não pergunta nada.',
             'campos.*.audio_prompt_id.required' => 'Escolha o áudio que pergunta este campo: sem ele a pessoa ouve silêncio.',
             'campos.*.nome.required' => 'Dê um nome ao campo — é a chave com que a resposta é gravada.',
@@ -688,7 +763,7 @@ final class CampanhaForm extends Component
     /**
      * O template escolhido agora, para a tela mostrar corpo e nº de parâmetros.
      *
-     * @return array{chave:string, nome:string, idioma:string, parametros:int, corpo:string, rotulo:string}|null
+     * @return array{chave:string, nome:string, idioma:string, parametros:int, cabecalho:string, corpo:string, rotulo:string}|null
      */
     public function getTemplateAtualProperty(): ?array
     {
@@ -699,6 +774,25 @@ final class CampanhaForm extends Component
         }
 
         return null;
+    }
+
+    /**
+     * A galeria, para o seletor de cabecalho.
+     *
+     * @return list<array{id:int, nome:string}>
+     */
+    private function imagens(): array
+    {
+        $saida = [];
+        foreach (DB::select('SELECT id, nome FROM imagem ORDER BY nome') as $linha) {
+            $i = (array) $linha;
+            $saida[] = [
+                'id' => self::inteiro($i['id'] ?? null),
+                'nome' => self::texto($i['nome'] ?? null),
+            ];
+        }
+
+        return $saida;
     }
 
     /** @return list<array{id:int, nome:string}> */

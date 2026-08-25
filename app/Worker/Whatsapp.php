@@ -32,7 +32,24 @@ final class Whatsapp
      * atendimento de 24 h, dentro da qual texto livre é ilimitado e não custa por
      * mensagem. O template pago é o pedágio de entrada.
      *
+     * 🔴 O `header` FALTAVA, e isso tornava dois templates inenviáveis.
+     *
+     * Este método montava só o componente `body`. Template com `HEADER
+     * format=IMAGE` exige também um componente `header` com a imagem em TODO envio,
+     * e sem ele a Meta recusa com `(#132000) Number of parameters does not match the
+     * expected number of params` — mensagem que fala de "parameters" e não menciona
+     * imagem, o que mandou a investigação para o lado errado.
+     *
+     * Medido em 25/08/2026 contra a conta real: `abordagem_liv_pts` e
+     * `abordagem_liv_pts_2` têm cabeçalho de imagem e falhavam em todo disparo.
+     *
+     * 🔴 E MANDAR O CABEÇALHO ONDE ELE NÃO É PEDIDO É O MESMO ERRO AO CONTRÁRIO.
+     * `$imagemUrl` nulo não emite o componente; quem decide é o formato declarado
+     * pelo template, lido em `TemplatesAprovados::cabecalho`.
+     *
      * @param list<string> $parametros posicionais do corpo do template
+     * @param ?string $imagemUrl URL pública da imagem do cabeçalho, quando o
+     *        template declara `HEADER format=IMAGE`. A Meta busca por HTTP.
      */
     public function enviarTemplate(
         string $para,
@@ -40,6 +57,7 @@ final class Whatsapp
         string $idioma,
         array $parametros,
         ?string $correlacao = null,
+        ?string $imagemUrl = null,
     ): Envio {
         $corpo = [
             'messaging_product' => 'whatsapp',
@@ -51,14 +69,30 @@ final class Whatsapp
             ],
         ];
 
+        $componentes = [];
+
+        // Cabeçalho ANTES do corpo. A Meta aceita em qualquer ordem, mas a ordem do
+        // template é a que se lê no gerenciador dela — divergir aqui só dificulta a
+        // conferência de quem for depurar um envio recusado.
+        if ($imagemUrl !== null && $imagemUrl !== '') {
+            $componentes[] = [
+                'type' => 'header',
+                'parameters' => [['type' => 'image', 'image' => ['link' => $imagemUrl]]],
+            ];
+        }
+
         if ($parametros !== []) {
-            $corpo['template']['components'] = [[
+            $componentes[] = [
                 'type' => 'body',
                 'parameters' => array_map(
                     static fn (string $v): array => ['type' => 'text', 'text' => $v],
                     $parametros,
                 ),
-            ]];
+            ];
+        }
+
+        if ($componentes !== []) {
+            $corpo['template']['components'] = $componentes;
         }
 
         // Viaja no envio e volta nos webhooks. É o campo que fecha o laço sem

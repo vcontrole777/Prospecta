@@ -303,6 +303,31 @@
                             @endif
                         </div>
                     @endif
+
+                    {{-- Cabeçalho de imagem: só aparece quando a Meta declara que o
+                         template tem um. Oferecer o seletor sempre faria o operador
+                         escolher imagem para template que não usa — e cabeçalho a mais
+                         é a MESMA recusa 132000 que cabeçalho a menos. --}}
+                    @if ($this->exigeImagem)
+                        <div class="mt-3">
+                            <x-select label="Imagem do cabeçalho" wire:model.live="imagem_id"
+                                      :options="$imagens" option-value="id" option-label="nome"
+                                      placeholder="— escolha —" />
+
+                            <p class="mt-1 text-sm text-base-content/60">
+                                Este template tem cabeçalho de imagem. Sem ela a Meta recusa o
+                                disparo inteiro com o erro 132000, que fala de "parameters" e não
+                                menciona imagem — por isso a tela cobra aqui.
+                                <a href="{{ route('imagens') }}" class="text-primary hover:underline">Galeria</a>
+                            </p>
+
+                            @if ($imagens === [])
+                                <p class="mt-1 text-sm text-warning">
+                                    Não há imagem cadastrada. Suba uma na galeria antes de salvar.
+                                </p>
+                            @endif
+                        </div>
+                    @endif
                 @endif
 
                 @if ($templates_erro !== null)

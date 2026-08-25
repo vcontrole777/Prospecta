@@ -248,6 +248,23 @@ while (! $parada->pedida()) {
             continue;
         }
 
+        /*
+         * URL da imagem do cabeçalho, quando a Campanha tem uma.
+         *
+         * 🔴 MONTADA À MÃO porque aqui NÃO há framework — sem `route()`, mesma
+         * disciplina do dialer. A base vem de `APP_URL` via `config/worker.php`.
+         *
+         * Sem `url_base` configurada a URL sairia relativa, a Meta não conseguiria
+         * buscar, e o disparo INTEIRO seria recusado com erro de mídia. Preferir
+         * nulo nesse caso é pior de outro jeito — o template exige a imagem —, mas
+         * ao menos o erro que volta fala de cabeçalho ausente em vez de URL quebrada.
+         */
+        $imagemToken = texto($a['imagem_token'] ?? null);
+        $imagemUrl = null;
+        if ($imagemToken !== '' && $conf['url_base'] !== '') {
+            $imagemUrl = $conf['url_base'] . '/imagem/' . $imagemToken;
+        }
+
         $envio = $whatsapp->enviarTemplate(
             $telefone,
             $template,
@@ -256,6 +273,7 @@ while (! $parada->pedida()) {
             // Correlação que volta no webhook, fechando o laço sem tabela de
             // tradução — mesmo padrão do `ChannelId` no AMI.
             'ligacao:' . $ligacaoId,
+            $imagemUrl,
         );
 
         $d = $politica->decidir($envio, numero($a['tentativas'] ?? null) + 1, $conf['max_tentativas']);
