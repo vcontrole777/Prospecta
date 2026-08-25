@@ -145,6 +145,57 @@ final class Whatsapp
         return $this->interpretar($r);
     }
 
+    /**
+     * Texto com um BOTÃO DE LINK — mensagem interativa `cta_url`.
+     *
+     * 🔴 SÓ DENTRO DA JANELA DE 24 H, exatamente como `enviarTexto`, e quem verifica
+     * isso NÃO é este método. Fora dela a Meta recusa interativo como recusa texto
+     * livre, e a checagem mora em `Conversas` antes de a Ação nascer, com reconfere
+     * no worker no instante do envio.
+     *
+     * 🔴 O TOQUE NÃO VOLTA. `cta_url` abre o navegador da pessoa e o WhatsApp não
+     * emite evento nenhum — ao contrário do botão de resposta rápida, cujo toque
+     * chega como mensagem de entrada e ABRE a janela. Portanto: este botão não
+     * renova janela, não gera Conversa e não conta como engajamento.
+     *
+     * A URL é responsabilidade de quem cadastrou. A Meta exige `https` e recusa o
+     * resto; `RespostasRapidas` recusa antes, com o motivo escrito.
+     */
+    public function enviarTextoComBotao(
+        string $para,
+        string $texto,
+        string $botaoTexto,
+        string $botaoUrl,
+        ?string $correlacao = null,
+    ): Envio {
+        $corpo = [
+            'messaging_product' => 'whatsapp',
+            'recipient_type' => 'individual',
+            'to' => $para,
+            'type' => 'interactive',
+            'interactive' => [
+                'type' => 'cta_url',
+                'body' => ['text' => $texto],
+                'action' => [
+                    'name' => 'cta_url',
+                    'parameters' => ['display_text' => $botaoTexto, 'url' => $botaoUrl],
+                ],
+            ],
+        ];
+
+        if ($correlacao !== null) {
+            $corpo['biz_opaque_callback_data'] = $correlacao;
+        }
+
+        $r = $this->transporte->postJson(
+            sprintf('https://graph.facebook.com/%s/%s/messages', $this->versaoApi, $this->numeroId),
+            $corpo,
+            ['Authorization' => 'Bearer ' . $this->token],
+        );
+
+        return $this->interpretar($r);
+    }
+
     /** @param array{http:int, corpo:string, erro:?string} $r */
     private function interpretar(array $r): Envio
     {

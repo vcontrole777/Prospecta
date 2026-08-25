@@ -408,6 +408,43 @@
                             a coluna da planilha importada.
                         </p>
                     @endif
+
+                    {{-- 🔴 AS COLUNAS QUE OS LEADS REALMENTE TÊM.
+                         O campo acima era texto em branco, e errar o nome não dá erro
+                         na tela: dá `template_mapa_invalido` no worker, uma Ligação por
+                         vez, depois de a Campanha estar no ar. --}}
+                    <div class="mt-4 border-t border-[var(--rule)] pt-3">
+                        @if ($colunasDosLeads['sem_leads'])
+                            <p class="text-sm text-base-content/50">
+                                Nenhum Lead importado ainda, então não dá para listar as colunas.
+                                Importe a lista e volte aqui — o nome tem que bater exatamente.
+                            </p>
+                        @else
+                            <p class="rotulo">Colunas disponíveis nos Leads desta Campanha</p>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                @foreach ($colunasDosLeads['lista'] as $coluna)
+                                    <span class="identificador border border-[var(--rule)] px-2 py-1 text-xs">
+                                        {{ $coluna }}
+                                    </span>
+                                @endforeach
+                            </div>
+
+                            @if ($colunasDosLeads['conjuntos'] > 1)
+                                {{-- Conjuntos divergentes significam importação sem
+                                     cabeçalho: a primeira linha de dados virou o nome
+                                     das colunas. Um mapeamento que sirva a uns falha
+                                     nos outros, calado. --}}
+                                <p class="mt-3 text-sm text-warning">
+                                    ⚠ Esta Campanha tem
+                                    <strong>{{ $colunasDosLeads['conjuntos'] }} conjuntos de colunas
+                                    diferentes</strong> entre os Leads. Isso costuma ser lista importada
+                                    sem linha de cabeçalho — a primeira pessoa do arquivo virou o nome
+                                    das colunas. Qualquer parâmetro que você mapear vai funcionar para
+                                    uma parte da lista e falhar na outra.
+                                </p>
+                            @endif
+                        @endif
+                    </div>
                 </div>
             @endif
         </section>

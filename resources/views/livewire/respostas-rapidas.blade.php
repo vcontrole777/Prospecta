@@ -28,6 +28,24 @@
             desconhecido, que não têm Lead.
         </p>
 
+        <div class="border-t border-[var(--rule)] pt-4">
+            <p class="rotulo">Botão de link (opcional)</p>
+            <div class="mt-2 grid gap-3 sm:grid-cols-2">
+                <x-input label="Texto do botão" wire:model="botao_texto" placeholder="Ver meus pontos" />
+                <x-input label="Endereço" wire:model="botao_url" placeholder="https://…" />
+            </div>
+            <p class="mt-2 text-sm text-base-content/60">
+                Vira um botão destacado abaixo da mensagem. O WhatsApp mostra até
+                <strong>20 caracteres</strong> dentro dele, e a Meta só aceita
+                <span class="identificador">https://</span>. Preencha os dois ou nenhum.
+            </p>
+            <p class="mt-1 text-sm text-base-content/60">
+                O toque no botão <strong>não volta para cá</strong> — abre o navegador da pessoa
+                e o WhatsApp não avisa ninguém. Ele não renova a janela de 24 h nem conta como
+                resposta.
+            </p>
+        </div>
+
         <div class="flex gap-2">
             <x-button type="submit" label="{{ $editando === null ? 'Cadastrar' : 'Salvar' }}"
                       class="btn-primary" spinner="salvar" />
@@ -70,6 +88,13 @@
                     </div>
 
                     <p class="mt-2 whitespace-pre-line text-sm text-base-content/70">{{ $r['texto'] }}</p>
+
+                    @if ($r['botao_texto'] !== '')
+                        <p class="rotulo mt-2">
+                            Botão: <span class="identificador">{{ $r['botao_texto'] }}</span>
+                            → <span class="identificador">{{ $r['botao_url'] }}</span>
+                        </p>
+                    @endif
 
                     @if ($r['colunas'] !== [])
                         <p class="rotulo mt-2">
