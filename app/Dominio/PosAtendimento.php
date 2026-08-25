@@ -48,22 +48,35 @@ final class PosAtendimento
      * carregada: `PosAtendimentoTest` afirma que os dois conjuntos batem com a
      * migration, para que mudar um sem o outro quebre em vez de divergir calado.
      *
-     * 🔴 O conjunto de fábrica JÁ TEVE um critério morto, e o 3500 abaixo é o
-     * conserto. `silêncio inicial` nasceu em 6000 contra 5000 de `análise total` —
-     * pedia mais tempo que o orçamento inteiro e por isso nunca disparava. Medido em
-     * 24/08/2026 na MESMA Campanha antes e depois: com 3500, a atendida sem decisão
-     * caiu de 54,9% para 2,1% e `INITIALSILENCE` saiu de ZERO para 7.812. Ver a migration
-     * `pos_silencio_inicial_nasce_vivo`, que carrega a tabela inteira.
+     * 🔴 DOIS DEFAULTS DAQUI JÁ FORAM MEDIDOS E CORRIGIDOS, e nenhum deles é o do
+     * `amd.conf`. A lista abaixo é o resultado, não o palpite inicial.
      *
-     * 3500 e não o 2500 do `amd.conf` porque 3500 é o que foi MEDIDO nesta rota.
+     * `silêncio inicial` nasceu em 6000 contra 5000 de `análise total` — pedia mais
+     * tempo que o orçamento inteiro e por isso nunca disparava. Em 24/08/2026, com
+     * 3500, a atendida sem decisão caiu de 54,9% para 2,1% na MESMA Campanha, e
+     * `INITIALSILENCE` saiu de ZERO para 7.812 ocorrências. Depois foi a 4500,
+     * porque 3,5 s ainda cortava gente — ver a nota no próprio parâmetro.
+     *
+     * `máximo de palavras` era 3 e declarava MÁQUINA quem atendia com quatro.
+     *
+     * As migrations `pos_silencio_inicial_nasce_vivo` e
+     * `afrouxa_o_classificador_contra_falso_maquina` carregam as tabelas inteiras.
      *
      * @return list<ParametroDoPos>
      */
     public static function parametros(): array
     {
         return [
-            // 1 initialSilence — quanto silêncio antes do primeiro som ainda é humano
-            new ParametroDoPos('pos_silencio_inicial_ms', 'silêncio inicial', 3500, 100, 65535, dentroDaAnalise: true),
+            /*
+             * 1 initialSilence — quanto silêncio antes do primeiro som ainda é humano.
+             *
+             * ⚠️ 4500 é APOSTA MEDIDA PELA METADE. Que 3,5 s cortava gente que
+             * demora uma batida para atender casa com o relato de quem ouviu as
+             * gravações; que 4,5 s seja o número certo, não se sabe. Parte do que
+             * ele pega é secretária de verdade. Confirmar é por gravação, não por
+             * consulta. Ver `afrouxa_o_classificador_contra_falso_maquina`.
+             */
+            new ParametroDoPos('pos_silencio_inicial_ms', 'silêncio inicial', 4500, 100, 65535, dentroDaAnalise: true),
             // 2 greeting — saudação mais longa que isto é secretária eletrônica
             new ParametroDoPos('pos_saudacao_max_ms', 'saudação máxima', 4000, 100, 65535, dentroDaAnalise: true),
             // 3 afterGreetingSilence
@@ -74,8 +87,17 @@ final class PosAtendimento
             new ParametroDoPos('pos_palavra_min_ms', 'palavra mínima', 100, 10, 65535),
             // 6 betweenWordsSilence
             new ParametroDoPos('pos_silencio_entre_palavras_ms', 'silêncio entre palavras', 50, 10, 65535),
-            // 7 maximumNumberOfWords — TINYINT, por isso o teto é 255 e não 65535
-            new ParametroDoPos('pos_palavras_max', 'máximo de palavras', 3, 1, 255, unidade: ''),
+            /*
+             * 7 maximumNumberOfWords — TINYINT, por isso o teto é 255 e não 65535.
+             *
+             * 🔴 6, e não o 3 do `amd.conf`. O 3 declarava MÁQUINA quem atendia
+             * dizendo "alô, quem tá falando?" — quatro palavras — e desligava:
+             * 3.931 Ligações numa tarde, medidas em 24/08/2026 pela causa
+             * `MAXWORDS-4-3`. Saudação de secretária tem dez, quinze palavras; 6
+             * cabe na saudação humana e continua separando. Ver a migration
+             * `afrouxa_o_classificador_contra_falso_maquina`.
+             */
+            new ParametroDoPos('pos_palavras_max', 'máximo de palavras', 6, 1, 255, unidade: ''),
             // 8 silenceThreshold
             new ParametroDoPos('pos_limiar_silencio', 'limiar de silêncio', 256, 1, 65535, unidade: ''),
             /*
