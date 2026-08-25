@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Livewire\CampanhaForm;
 use App\Livewire\Audios;
+use App\Livewire\Imagens;
 use App\Livewire\Binas;
 use App\Livewire\Bloqueios;
 use App\Livewire\Campanhas;
@@ -11,6 +12,7 @@ use App\Livewire\Configuracao;
 use App\Livewire\Conversas;
 use App\Livewire\ImportarLista;
 use App\Http\Controllers\Gravacao;
+use App\Http\Controllers\Imagem;
 use App\Http\Controllers\WebhookWhatsapp;
 use App\Livewire\Integracoes;
 use App\Livewire\Resultados;
@@ -50,6 +52,22 @@ use Illuminate\Support\Facades\Route;
 Route::get('/webhook/whatsapp', [WebhookWhatsapp::class, 'verificar'])->name('webhook.whatsapp.verificar');
 Route::post('/webhook/whatsapp', [WebhookWhatsapp::class, 'receber'])->name('webhook.whatsapp');
 
+/*
+| 🔴 IMAGEM DE TEMPLATE: PÚBLICA, e pelo mesmo motivo do webhook.
+|
+| Quem busca é a Meta, para montar o cabeçalho do template, e ela não faz login.
+| Atrás de `auth` a busca voltaria como redirecionamento para o formulário e o
+| cabeçalho chegaria quebrado — ou o disparo inteiro seria recusado.
+|
+| O que protege é o token de 32 caracteres ser opaco: com o id na URL, quem
+| descobrisse uma imagem enumeraria a galeria. `/audios` e `/gravacao` continuam
+| fechadas; o risco aqui está nomeado e é aceito, porque a imagem vai para milhares
+| de desconhecidos no disparo de qualquer forma.
+*/
+Route::get('/imagem/{token}', Imagem::class)
+    ->where('token', '[a-f0-9]{32}')
+    ->name('imagem');
+
 Route::middleware('guest')->group(function (): void {
     Route::get('/entrar', Entrar::class)->name('login');
 });
@@ -63,6 +81,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/campanhas/{id}/resultados', Resultados::class)->name('campanha.resultados');
 
     Route::get('/audios', Audios::class)->name('audios');
+    Route::get('/imagens', Imagens::class)->name('imagens');
     Route::get('/binas', Binas::class)->name('binas');
     Route::get('/bloqueios', Bloqueios::class)->name('bloqueios');
     Route::get('/rota', Rota::class)->name('rota');

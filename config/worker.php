@@ -28,6 +28,16 @@ return [
     // credencial ilegível e exige recadastrar cada integração.
     'app_key' => $ler('APP_KEY'),
 
+    /*
+     * Base para montar a URL publica da imagem de cabecalho de template.
+     *
+     * O worker NAO sobe o framework (mesma disciplina do dialer), entao nao existe
+     * `route()` aqui -- a URL e montada com isto mais o token da imagem. Errar esta
+     * variavel faz a Meta nao conseguir buscar a imagem e recusar o disparo inteiro,
+     * o que aparece como falha de envio e nao como configuracao errada.
+     */
+    'url_base' => rtrim($ler('APP_URL', ''), '/'),
+
     'lote' => (int) $ler('PROSPECTA_WORKER_LOTE', '20'),
 
     // 🔴 TETO BAIXO, e não é falta de ambição.

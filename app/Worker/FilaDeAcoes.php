@@ -58,11 +58,16 @@ final class FilaDeAcoes
                         le.telefone, le.dados_extras,
                         c.id AS campanha_id, c.canal_opt_in,
                         c.template_nome, c.template_idioma, c.template_mapa,
-                        c.texto_mensagem, c.texto_sms
+                        c.texto_mensagem, c.texto_sms,
+                        -- Token da imagem do cabecalho, quando o template pede uma.
+                        -- LEFT JOIN: a esmagadora maioria das Campanhas nao tem, e
+                        -- INNER aqui esconderia todas elas da fila.
+                        img.token AS imagem_token
                    FROM acao a
                    JOIN ligacao l  ON l.id  = a.referencia_id
                    JOIN leads   le ON le.id = l.lead_id
                    JOIN campanha c ON c.id  = l.campanha_id
+                   LEFT JOIN imagem img ON img.id = c.imagem_id
                   WHERE a.tipo = 'disparo' AND a.status = 'pendente'
                     -- 🔴 SÓ WhatsApp. O canal `sms` existe no esquema e ainda não
                     -- tem remetente. Filtrar aqui é melhor que reivindicar e
