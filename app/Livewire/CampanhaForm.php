@@ -87,6 +87,15 @@ final class CampanhaForm extends Component
 
     public string $canal_opt_in = 'whatsapp';
 
+    /**
+     * O texto que o SMS manda, com Placeholder.
+     *
+     * 🔴 ENTROU NA TELA QUANDO GANHOU LEITOR. O docblock desta classe lista
+     * `texto_sms` entre as ausências MEDIDAS — coluna que nenhum processo lia, e
+     * campo assim é promessa falsa. `Worker\Sms` a lê agora, então ela cabe aqui.
+     */
+    public string $texto_sms = '';
+
     public string $template_nome = '';
 
     public string $template_idioma = 'pt_BR';
@@ -217,6 +226,7 @@ final class CampanhaForm extends Component
         $this->audio_confirma_captura_id = self::inteiroOuNulo($c['audio_confirma_captura_id'] ?? null);
         $this->audio_nao_entendi_id = self::inteiroOuNulo($c['audio_nao_entendi_id'] ?? null);
         $this->canal_opt_in = self::texto($c['canal_opt_in'] ?? null) ?: 'whatsapp';
+        $this->texto_sms = self::texto($c['texto_sms'] ?? null);
         $this->template_nome = self::texto($c['template_nome'] ?? null);
         $this->template_idioma = self::texto($c['template_idioma'] ?? null) ?: 'pt_BR';
 
@@ -507,6 +517,7 @@ final class CampanhaForm extends Component
             'audio_confirma_captura_id' => $this->audio_confirma_captura_id,
             'audio_nao_entendi_id' => $this->audio_nao_entendi_id,
             'canal_opt_in' => $this->canal_opt_in,
+            'texto_sms' => trim($this->texto_sms) === '' ? null : trim($this->texto_sms),
             'template_nome' => trim($this->template_nome) === '' ? null : trim($this->template_nome),
             'template_idioma' => $this->template_idioma,
             'template_mapa' => $mapa === [] ? null : json_encode($mapa, JSON_UNESCAPED_UNICODE),
@@ -643,6 +654,19 @@ final class CampanhaForm extends Component
 
             'canal_opt_in' => ['required', 'in:whatsapp,sms'],
 
+            /*
+             * Obrigatório SÓ no canal SMS, e pelo mesmo motivo que o template é
+             * obrigatório só no WhatsApp: exigir sempre recusaria Campanha bem
+             * configurada. Sem ele o Disparo nasce condenado — o worker falha com
+             * `campanha_sem_texto_sms_ou_lead_sem_telefone`, um Lead por vez.
+             *
+             * 1600 é o teto prático de SMS concatenado; acima disso o custo explode
+             * sem o operador perceber.
+             */
+            'texto_sms' => $this->tipo === 'opt_in' && $this->canal_opt_in === 'sms'
+                ? ['required', 'string', 'max:1600']
+                : ['nullable', 'string', 'max:1600'],
+
             // 🔴 Obrigatório só quando é OPT-IN e WhatsApp — condição composta, que
             // `required_if` não expressa.
             //
@@ -722,6 +746,7 @@ final class CampanhaForm extends Component
             'tecla_opt_out.regex' => 'Uma tecla só: 0 a 9, * ou #.',
             'tecla_opt_in.different' => 'As teclas de opt-in e opt-out têm que ser diferentes.',
             'template_nome.required' => 'No WhatsApp o nome do template é obrigatório: sem ele o envio falha.',
+            'texto_sms.required' => 'No SMS o texto é obrigatório: sem ele o Disparo nasce condenado.',
             'parametros.*.required' => 'Parâmetro em branco — remova a linha ou preencha o nome da coluna.',
             'imagem_id.required' => 'Este template tem cabecalho de imagem: escolha uma da galeria, senao a Meta recusa o disparo inteiro.',
             'campos.required' => 'Campanha de captura precisa de ao menos um campo, senão ela liga e não pergunta nada.',

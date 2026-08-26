@@ -84,24 +84,29 @@ final class FilaDeAcoesTest extends TestCase
     }
 
     /**
-     * 🔴 CANAL SEM REMETENTE FICA FORA DA CONSULTA, não é reivindicado e descartado.
+     * 🔴 UM CANAL POR VEZ, e o de outro canal NÃO gasta tentativa.
      *
-     * O canal `sms` existe no esquema e não tem remetente. Reivindicado, o registro
-     * gastaria uma tentativa por volta do worker e morreria por esgotamento antes de o
-     * SMS existir — o opt-in que o cliente pagou para conseguir seria perdido por
-     * inanição, e o log diria "esgotou tentativas", que aponta para o lugar errado.
+     * Este teste nasceu quando o `sms` não tinha remetente: ele afirmava que um
+     * Disparo de SMS ficava FORA da consulta, porque reivindicado ele gastaria uma
+     * tentativa por volta e morreria por esgotamento — o opt-in que o cliente pagou
+     * para conseguir, perdido por inanição, com o log dizendo "esgotou tentativas" e
+     * apontando para o lugar errado.
+     *
+     * `Worker\Sms` existe agora, e o canal virou PARÂMETRO. A propriedade que
+     * importava continua valendo e é o que se afirma aqui: reivindicar um canal não
+     * toca no outro. Quem pede WhatsApp não gasta a tentativa do SMS.
      */
     #[Test]
-    public function reivindicar_nao_gasta_tentativa_de_canal_sem_remetente(): void
+    public function reivindicar_um_canal_nao_gasta_tentativa_do_outro(): void
     {
         $acao = $this->acao(canal: 'sms');
 
-        $this->assertSame([], $this->fila->reivindicar(10));
+        $this->assertSame([], $this->fila->reivindicar(10, 'whatsapp'));
         $this->assertSame(0, (int) DB::table('acao')->where('id', $acao)->value('tentativas'));
-        $this->assertSame('pendente', DB::table('acao')->where('id', $acao)->value('status'));
 
-        // E fica VISÍVEL, para não esperar em silêncio.
-        $this->assertSame(1, $this->fila->contarAguardandoCanal());
+        // E o MESMO registro é reivindicado quando se pede o canal dele.
+        $this->assertCount(1, $this->fila->reivindicar(10, 'sms'));
+        $this->assertSame(1, (int) DB::table('acao')->where('id', $acao)->value('tentativas'));
     }
 
     #[Test]
