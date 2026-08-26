@@ -126,10 +126,34 @@ final class Integracoes extends Component
                 ],
             ],
         ],
+        /*
+         * 🔴 `generico` SAIU, e não é remoção de recurso: ele nunca funcionou.
+         *
+         * Era `endpoint` + `token`, sem remetente e sem formato de corpo definido —
+         * nenhum código jamais o consumiu, e não havia como consumir: dois campos não
+         * descrevem uma API. Era campo em tela que nada lê, exatamente o que o
+         * docblock desta classe diz que não se oferece.
+         *
+         * `httpsms` no lugar tem semântica: os dois campos abaixo são o que a API
+         * dele exige, e `Worker\Sms` os consome.
+         */
         'sms' => [
-            'generico' => [
-                'endpoint' => ['rotulo' => 'Endpoint', 'segredo' => false],
-                'token' => ['rotulo' => 'Token', 'segredo' => true],
+            'httpsms' => [
+                'api_key' => [
+                    'rotulo' => 'Chave de API',
+                    'segredo' => true,
+                    'dica' => 'Do painel em httpsms.com/settings. Vai no cabeçalho `x-api-key`.',
+                ],
+                'remetente' => [
+                    'rotulo' => 'Número do aparelho',
+                    'segredo' => false,
+                    'dica' => 'O chip do celular Android que roda o app do httpSMS — é ele que manda o SMS. Com país e DDD: 5511987654321.',
+                ],
+                'signing_key' => [
+                    'rotulo' => 'Chave de assinatura do webhook',
+                    'segredo' => true,
+                    'dica' => 'A MESMA que você põe ao criar o webhook no painel do httpSMS. Sem ela o endpoint recusa TODO evento — é a única proteção de uma rota pública. Opcional se você não usar webhook.',
+                ],
             ],
         ],
     ];

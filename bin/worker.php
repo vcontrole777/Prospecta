@@ -34,6 +34,9 @@ use App\Worker\Interrupcao;
 use App\Seguranca\Cofre;
 use App\Worker\PoliticaDeEnvio;
 use App\Worker\TransporteCurl;
+use App\Sms\Leitura as LeituraSms;
+use App\Worker\FilaDeEventosSms;
+use App\Worker\Sms;
 use App\Worker\Whatsapp;
 
 $conf = require dirname(__DIR__) . '/config/worker.php';
@@ -49,6 +52,9 @@ $pdo = new PDO($conf['banco']['dsn'], $conf['banco']['usuario'], $conf['banco'][
 ]);
 
 $fila = new FilaDeAcoes($pdo, new Cofre($conf['app_key']));
+
+$eventosSms = new FilaDeEventosSms($pdo);
+$leituraSms = new LeituraSms();
 $eventos = new FilaDeEventos($pdo);
 $optOut = new OptOut();
 $politica = new PoliticaDeEnvio();
@@ -72,9 +78,10 @@ while (! $parada->pedida()) {
     // Campanha configurada para SMS pareceria simplesmente não fazer nada.
     $aguardando = $fila->contarAguardandoCanal();
     if ($aguardando > 0 && $aguardando !== $aguardandoCanalAvisado) {
+        // Sem `'canal' => 'sms'` fixo: o SMS ganhou remetente, e nomear um canal
+        // que já é atendido mandaria quem lesse o log procurar o problema errado.
         $log->linha('aguardando_canal', 'Ações de canal sem remetente implementado', [
             'quantas' => $aguardando,
-            'canal' => 'sms',
         ]);
         $aguardandoCanalAvisado = $aguardando;
     }
@@ -147,6 +154,53 @@ while (! $parada->pedida()) {
         ]);
     }
 
+    // ---- eventos do webhook de SMS ------------------------------------------
+    //
+    // Antes dos Disparos, como os do WhatsApp: um status que chegou muda o que a
+    // tela mostra, e processá-lo depois de uma volta inteira de envio atrasaria a
+    // informação sem ganho nenhum.
+    $loteSms = $eventosSms->proximos($conf['eventos_por_volta']);
+
+    foreach ($loteSms as $ev) {
+        $cloud = json_decode($ev['payload'], true);
+
+        if (is_array($cloud)) {
+            $status = $leituraSms->status($cloud);
+            if ($status !== null && $eventosSms->aplicar($status)) {
+                $log->linha('status_sms', 'estado de entrega aplicado', [
+                    'id' => $status->id,
+                    'status' => $status->status,
+                    'erro' => $status->erro,
+                ]);
+            }
+
+            /*
+             * 🔴 O APARELHO CAINDO É O REMETENTE MORRENDO, e sem isto a Campanha
+             * simplesmente para de mandar. No WhatsApp o remetente é a nuvem da
+             * Meta; aqui é um celular que descarrega, perde sinal ou é desligado por
+             * alguém. Uma linha no log é a diferença entre "o SMS parou" e "o SMS
+             * parou PORQUE o aparelho está fora".
+             */
+            $vivo = $leituraSms->heartbeat($cloud);
+            if ($vivo !== null) {
+                $log->linha(
+                    $vivo ? 'aparelho_online' : 'aparelho_offline',
+                    $vivo ? 'o celular do httpSMS voltou' : 'o celular do httpSMS está fora — o SMS não sai',
+                    [],
+                );
+            }
+        }
+
+        $eventosSms->marcarProcessado($ev['id']);
+    }
+
+    if ($loteSms !== []) {
+        $log->linha('eventos_sms', 'eventos do httpSMS processados', [
+            'quantos' => count($loteSms),
+            'restam' => $eventosSms->pendentes(),
+        ]);
+    }
+
     // ---- Ações de disparo ---------------------------------------------------
     $cred = $fila->credenciaisWhatsapp();
 
@@ -182,6 +236,17 @@ while (! $parada->pedida()) {
 
     $acoes = $fila->reivindicar($conf['lote']);
 
+    /*
+     * 🔴 SÓ REIVINDICA SMS SE HOUVER COM QUE MANDAR.
+     *
+     * É a mesma disciplina que o filtro antigo tinha: reivindicado sem remetente, o
+     * registro gastaria uma tentativa por volta e morreria por esgotamento contra
+     * uma configuração incompleta. Sem credencial, ele fica pendente e esperando —
+     * que é o estado honesto.
+     */
+    $credSms = $fila->credenciaisSms();
+    $acoesSms = $credSms === null ? [] : $fila->reivindicar($conf['lote'], 'sms');
+
     // 🔴 AS DUAS FILAS ANTES DA SAÍDA ANTECIPADA, e o lugar disto é load-bearing.
     // Com a reivindicação das respostas depois do `continue` abaixo, responder só
     // funcionava quando havia um Disparo na MESMA volta — ou seja, quase nunca, porque
@@ -189,7 +254,7 @@ while (! $parada->pedida()) {
     // independentes; a volta só está vazia quando as duas estão.
     $respostas = $fila->reivindicarRespostas($conf['lote']);
 
-    if ($acoes === [] && $respostas === []) {
+    if ($acoes === [] && $acoesSms === [] && $respostas === []) {
         // Ações que sobraram pendentes com as tentativas no teto. Acontece quando o
         // processo morre entre reivindicar e aplicar — a linha volta a pendente com
         // a tentativa já contada. Sem esta varredura ficariam presas para sempre.
@@ -335,6 +400,83 @@ while (! $parada->pedida()) {
             $log->linha('canal_parado', 'interrompendo a volta: ' . $d->motivo, ['acao' => $acaoId]);
             $canalParado = true;
             break;
+        }
+    }
+
+    // ---- Disparos por SMS ---------------------------------------------------
+    //
+    // 🔴 LAÇO PRÓPRIO, e não um ramo dentro do de WhatsApp. Os dois compartilham a
+    // forma — resolver o texto, mandar, aplicar a decisão — e mais nada: um monta
+    // template com componentes e o outro monta uma linha de texto; um fala com a
+    // Meta e o outro com um celular Android. Um `if` no meio do laço de cima
+    // obrigaria toda leitura futura a separar mentalmente os dois caminhos.
+    if ($credSms !== null && $acoesSms !== []) {
+        $sms = new Sms($transporte, $credSms['api_key'], $credSms['remetente']);
+
+        foreach ($acoesSms as $a) {
+            if ($parada->pedida()) {
+                break;
+            }
+
+            $acaoId = numero($a['id'] ?? null);
+            $ligacaoId = numero($a['referencia_id'] ?? null);
+            $telefone = texto($a['telefone'] ?? null);
+            $modelo = texto($a['texto_sms'] ?? null);
+
+            if ($telefone === '' || $modelo === '') {
+                // Campanha de SMS sem texto é configuração incompleta, não falha de
+                // envio. Falhar com causa NOMEADA é o que faz o operador procurar na
+                // tela em vez de no tronco.
+                $fila->aplicar(
+                    $acaoId,
+                    new DecisaoDeEnvio('falhou', false, false, 'campanha_sem_texto_sms_ou_lead_sem_telefone'),
+                    new Envio(http: 0, mensagem: 'texto do SMS ou telefone ausente'),
+                );
+                $log->linha('invalida', 'Campanha sem texto de SMS ou Lead sem telefone', [
+                    'acao' => $acaoId, 'ligacao' => $ligacaoId,
+                ]);
+                continue;
+            }
+
+            $dados = json_decode(texto($a['dados_extras'] ?? null), true);
+
+            try {
+                // MESMO Placeholder da Mensagem da chamada e do template. Uma coluna
+                // que falta falha aqui com causa nomeada, em vez de sair
+                // "Olá , confira" para uma pessoa real.
+                $conteudo = $placeholder->resolverTexto(
+                    $modelo,
+                    is_array($dados) ? achatarParaTexto($dados) : [],
+                );
+            } catch (ErroDeDominio $e) {
+                $fila->aplicar(
+                    $acaoId,
+                    new DecisaoDeEnvio('falhou', false, false, 'texto_sms_invalido'),
+                    new Envio(http: 0, mensagem: $e->getMessage()),
+                );
+                $log->linha('invalida', 'texto de SMS inválido', [
+                    'acao' => $acaoId, 'ligacao' => $ligacaoId, 'erro' => $e->getMessage(),
+                ]);
+                continue;
+            }
+
+            $envio = $sms->enviar($telefone, $conteudo, 'ligacao:' . $ligacaoId);
+
+            $d = $politica->decidir($envio, numero($a['tentativas'] ?? null) + 1, $conf['max_tentativas']);
+            $fila->aplicar($acaoId, $d, $envio);
+
+            $log->linha($d->status === 'enviado' ? 'enviado' : 'nao_enviado', $d->motivo, [
+                'ligacao' => $ligacaoId,
+                'acao' => $acaoId,
+                'http' => $envio->http,
+                'id' => $envio->wamid,
+                'via' => 'sms',
+            ]);
+
+            if ($d->pararCanal) {
+                $log->linha('canal_parado', 'interrompendo os SMS da volta: ' . $d->motivo, ['acao' => $acaoId]);
+                break;
+            }
         }
     }
 

@@ -123,10 +123,16 @@ final class CampanhaFormTest extends TestCase
             ->assertHasErrors('template_nome');
 
         // Em SMS não é exigido — aquele remetente não usa template.
+        //
+        // `texto_sms` entrou aqui quando `Worker\Sms` nasceu: ele passou a ser
+        // obrigatório no canal SMS pelo MESMO motivo que o template é obrigatório no
+        // WhatsApp — sem ele o Disparo nasce condenado. Sem preenchê-lo, este teste
+        // afirmaria "não exige template" por já estar sendo recusado por outra coisa.
         Livewire::test(CampanhaForm::class)
             ->set('nome', 'y')
             ->set('canal_opt_in', 'sms')
             ->set('template_nome', '')
+            ->set('texto_sms', 'Olá, confira sua proposta.')
             ->set('audio_mensagem_id', $this->audio)
             ->call('salvar')
             ->assertHasNoErrors();

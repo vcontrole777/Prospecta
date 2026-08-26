@@ -270,9 +270,22 @@
             />
 
             @if ($canal_opt_in === 'sms')
-                <p class="text-sm text-warning">
-                    O envio por SMS ainda não tem remetente implementado. A Ação é
-                    registrada e fica aguardando — não é perdida, mas também não sai.
+                {{-- O campo entrou quando o remetente nasceu: até `Worker\Sms` existir,
+                     `texto_sms` era coluna que nenhum processo lia, e a regra desta tela
+                     é não oferecer campo assim. --}}
+                <x-textarea label="Texto do SMS" wire:model="texto_sms" rows="4"
+                            placeholder="Olá {Nome}, confira sua proposta em ..." />
+
+                <p class="text-sm text-base-content/60">
+                    Aceita <span class="identificador">{Nome da Coluna}</span> para puxar dado
+                    do Lead — a mesma escrita da Mensagem da chamada. Coluna que falta faz o
+                    envio falhar com o motivo escrito, em vez de sair com lacuna.
+                </p>
+                <p class="text-sm text-base-content/60">
+                    Quem manda é um <strong>celular Android</strong> com o app do httpSMS, não
+                    um gateway de operadora: a vazão é a de um aparelho, e ele precisa estar
+                    ligado e com sinal. Cadastre a chave e o número em
+                    <a href="{{ route('integracoes') }}" class="text-primary hover:underline">Integrações</a>.
                 </p>
             @else
                 {{-- Escolher da lista em vez de digitar: nome e idioma vêm colados da

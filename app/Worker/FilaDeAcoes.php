@@ -42,9 +42,21 @@ final class FilaDeAcoes
      * gerar ao teto de tentativas, em vez de deixar um laço infinito mandando
      * mensagem paga para o mesmo Lead.
      *
+     * 🔴 O CANAL É PARÂMETRO, e não mais um filtro fixo em `whatsapp`.
+     *
+     * A consulta trazia só WhatsApp porque o SMS não tinha remetente — o comentário
+     * abaixo explicava que reivindicar sem poder enviar gastaria uma tentativa por
+     * volta até o registro morrer por esgotamento. Agora `Worker\Sms` existe, e o
+     * que decide é a Campanha.
+     *
+     * Continua sendo UMA reivindicação por canal, e não um `OR`: o worker monta um
+     * remetente diferente para cada um, e misturar os dois no mesmo lote obrigaria a
+     * escolher o remetente por linha dentro do laço de envio.
+     *
+     * @param 'whatsapp'|'sms' $canal
      * @return list<array<string,mixed>>
      */
-    public function reivindicar(int $quantas): array
+    public function reivindicar(int $quantas, string $canal = 'whatsapp'): array
     {
         if ($quantas < 1) {
             return [];
@@ -69,18 +81,16 @@ final class FilaDeAcoes
                    JOIN campanha c ON c.id  = l.campanha_id
                    LEFT JOIN imagem img ON img.id = c.imagem_id
                   WHERE a.tipo = 'disparo' AND a.status = 'pendente'
-                    -- 🔴 SÓ WhatsApp. O canal `sms` existe no esquema e ainda não
-                    -- tem remetente. Filtrar aqui é melhor que reivindicar e
-                    -- desistir: reivindicado, o registro gastaria uma tentativa por
-                    -- volta e morreria por esgotamento antes de o SMS existir. Fora
-                    -- da consulta, ele espera. `contarAguardandoCanal` o torna
-                    -- visível para não esperar em silêncio.
-                    AND c.canal_opt_in = 'whatsapp'
+                    -- 🔴 UM CANAL POR VEZ. Cada um tem remetente próprio — token da
+                    -- Meta de um lado, chave do httpSMS e número do aparelho do
+                    -- outro —, e um lote misto obrigaria a escolher o remetente
+                    -- linha a linha dentro do laço de envio.
+                    AND c.canal_opt_in = :canal
                   ORDER BY a.id
                   LIMIT {$quantas}
                   FOR UPDATE OF a SKIP LOCKED"
             );
-            $st->execute();
+            $st->execute(['canal' => $canal === 'sms' ? 'sms' : 'whatsapp']);
 
             /** @var list<array<string,mixed>> $linhas */
             $linhas = array_values(array_filter($st->fetchAll(), 'is_array'));
@@ -287,9 +297,66 @@ final class FilaDeAcoes
     }
 
     /**
+     * Credenciais da integração de SMS em vigor.
+     *
+     * Mesma forma de `credenciaisWhatsapp`, e a duplicação é DELIBERADA: extrair um
+     * "carrega credencial do tipo X" pareceria economia, mas os dois conferem campos
+     * DIFERENTES — token e `phone_number_id` de um lado, chave e remetente do outro
+     * —, e a conferência é justamente o que impede um envio nascer condenado. Um
+     * método genérico devolveria o array cru e empurraria a checagem para o
+     * chamador, que é onde ela some.
+     *
+     * @return array{api_key:string, remetente:string}|null
+     */
+    public function credenciaisSms(): ?array
+    {
+        $st = $this->pdo->query(
+            'SELECT i.credenciais
+               FROM configuracao cfg
+               JOIN integracao i ON i.id = cfg.integracao_sms_id
+              WHERE cfg.id = 1 AND i.ativo = 1 AND i.tipo = \'sms\''
+        );
+        if ($st === false) {
+            return null;
+        }
+
+        $linha = $st->fetch();
+        if (! is_array($linha)) {
+            return null;
+        }
+
+        $guardado = self::texto($linha['credenciais'] ?? null);
+        $cred = $this->cofre !== null
+            ? $this->cofre->decifrarDaColuna($guardado)
+            : json_decode($guardado, true);
+
+        if (! is_array($cred) || $cred === []) {
+            return null;
+        }
+
+        $chave = self::texto($cred['api_key'] ?? null);
+        $remetente = self::texto($cred['remetente'] ?? null);
+
+        // Sem remetente o httpSMS não sabe qual aparelho seu deve mandar, e recusa
+        // com um 422 sobre formato. Recusar aqui deixa a Ação esperando em vez de
+        // gastar tentativa contra uma configuração incompleta.
+        if ($chave === '' || $remetente === '') {
+            return null;
+        }
+
+        return ['api_key' => $chave, 'remetente' => $remetente];
+    }
+
+    /**
      * Ações pendentes de canal que ainda não tem remetente. Não é erro — é
      * trabalho esperando por código — mas precisa aparecer no log, senão uma
-     * Campanha configurada para SMS pareceria simplesmente não fazer nada.
+     * Campanha configurada para um canal desses pareceria simplesmente não fazer nada.
+     *
+     * 🔴 A LISTA É A DOS CANAIS QUE O WORKER SABE MANDAR, e ela cresceu: `sms` saiu
+     * daqui quando `Worker\Sms` nasceu. Hoje a conta dá zero, e isso está certo —
+     * ela é a guarda para o dia em que alguém acrescentar um canal ao enum sem
+     * escrever o remetente, que é exatamente o que aconteceu com o SMS e ficou
+     * invisível até este contador existir.
      */
     public function contarAguardandoCanal(): int
     {
@@ -299,7 +366,7 @@ final class FilaDeAcoes
                JOIN ligacao l  ON l.id = a.referencia_id
                JOIN campanha c ON c.id = l.campanha_id
               WHERE a.tipo = 'disparo' AND a.status = 'pendente'
-                AND c.canal_opt_in <> 'whatsapp'"
+                AND c.canal_opt_in NOT IN ('whatsapp', 'sms')"
         );
 
         return $st === false ? 0 : self::numero($st->fetchColumn());
