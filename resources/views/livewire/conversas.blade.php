@@ -107,10 +107,43 @@
                                                 {{ $m['direcao'] === 'entrada'
                                                     ? 'border-[var(--rule)]'
                                                     : 'border-[var(--rule-strong)] bg-[var(--bg-raised)]' }}">
+                                        {{-- 🔴 CADA TIPO MOSTRA O QUE TEM, em vez de `(tipo)`.
+                                             Medido em 26/08/2026: 213 das 243 mensagens da base
+                                             apareciam como um marcador cinza, porque o texto do
+                                             Disparo era gravado vazio. O operador via que ALGO
+                                             foi enviado e não o quê. --}}
                                         @if ($m['texto'] !== '')
                                             <p class="whitespace-pre-wrap">{{ $m['texto'] }}</p>
+
+                                            {{-- Toque em botão. O texto acima é o RÓTULO que a
+                                                 pessoa viu — `Leitura` grava o `title`. O payload,
+                                                 que identificaria QUAL botão quando dois têm
+                                                 rótulo parecido, o `Entrada` traz e
+                                                 `registrarEntrada` não guarda. Fica assim em vez
+                                                 de inventar coluna; o rótulo resolve o caso comum.
+                                                 --}}
+                                            @if ($m['tipo'] === 'button' || $m['tipo'] === 'interactive')
+                                                <p class="rotulo mt-1">tocou no botão</p>
+                                            @endif
+                                        @elseif ($m['tipo'] === 'reaction')
+                                            <p class="text-base-content/60">reagiu à mensagem</p>
                                         @else
-                                            <p class="text-base-content/50">({{ $m['tipo'] ?: 'sem texto' }})</p>
+                                            {{-- Mídia: o webhook guarda o TIPO e descarta o
+                                                 conteúdo — exibir exigiria baixar da Graph API
+                                                 com o token e guardar, que é caminho próprio.
+                                                 Dizer isso é melhor que `(audio)` solto, que
+                                                 parece defeito da tela. --}}
+                                            <p class="text-base-content/60">
+                                                {{ [
+                                                    'audio' => '🎤 áudio',
+                                                    'image' => '🖼️ imagem',
+                                                    'sticker' => '💬 figurinha',
+                                                    'video' => '🎬 vídeo',
+                                                    'document' => '📄 documento',
+                                                    'location' => '📍 localização',
+                                                ][$m['tipo']] ?? ($m['tipo'] ?: 'sem conteúdo') }}
+                                            </p>
+                                            <p class="rotulo mt-1">o conteúdo não é guardado</p>
                                         @endif
 
                                         <div class="rotulo mt-2 flex flex-wrap gap-2">

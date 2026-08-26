@@ -27,6 +27,7 @@ use App\Worker\DecisaoDeEnvio;
 use App\Worker\Envio;
 use App\Whatsapp\JanelaDeAtendimento;
 use App\Whatsapp\Leitura;
+use App\Whatsapp\TextoDoTemplate;
 use App\Whatsapp\OptOut;
 use App\Worker\FilaDeAcoes;
 use App\Worker\FilaDeEventos;
@@ -53,6 +54,7 @@ $eventos = new FilaDeEventos($pdo);
 $optOut = new OptOut();
 $politica = new PoliticaDeEnvio();
 $placeholder = new Placeholder();
+$textoDoTemplate = new TextoDoTemplate();
 $transporte = new TransporteCurl($conf['timeout_http_seg']);
 
 $parada = new Interrupcao();
@@ -313,7 +315,20 @@ while (! $parada->pedida()) {
         // tinha sido enviado. E o `aplicarStatus` do webhook só faz UPDATE por `wamid`,
         // então sem a linha os estados de entrega não tinham onde pousar.
         if ($d->status === 'enviado' && $envio->wamid !== null) {
-            $eventos->registrarSaida($telefone, $envio->wamid, '', $template);
+            /*
+             * 🔴 O TEXTO QUE A PESSOA RECEBEU, e não string vazia.
+             *
+             * Aqui ia `''`, e por isso a caixa de entrada mostrava `(template)` em
+             * 213 das 243 mensagens da base: o operador via que ALGO saiu e não o
+             * quê. Com o corpo guardado na Campanha e os parâmetros já resolvidos
+             * acima, o texto se monta sem falar com ninguém.
+             */
+            $eventos->registrarSaida(
+                $telefone,
+                $envio->wamid,
+                $textoDoTemplate->montar(texto($a['template_corpo'] ?? null), $parametros, $nomes),
+                $template,
+            );
         }
 
         $log->linha($d->status === 'enviado' ? 'enviado' : 'nao_enviado', $d->motivo, [
