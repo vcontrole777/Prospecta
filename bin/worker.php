@@ -229,11 +229,27 @@ while (! $parada->pedida()) {
         // errado, e o Lead recebe a mensagem de outra pessoa. Mas sem captura aqui
         // uma Campanha com mapa malformado derrubaria o PROCESSO, parando o envio
         // de todas as outras. A Ação falha; o worker continua.
+        /*
+         * 🔴 DOIS FORMATOS DE TEMPLATE, e a CHAVE DO MAPA é quem diz qual.
+         *
+         * A Meta permite `{{nome}}` no lugar de `{{1}}`. O worker não fala com ela —
+         * só tem o `campanha.template_mapa` —, então a distinção precisa caber no
+         * próprio valor: chave `"1"` é posição, chave `"nome"` é nome. Sem coluna
+         * nova, e as Campanhas que já existem seguem no caminho posicional sem saber
+         * que houve mudança.
+         */
+        $mapaTexto = mapaDeTexto($mapa);
+        $doLead = is_array($dados) ? achatarParaTexto($dados) : [];
+        $nomes = [];
+
         try {
-            $parametros = $placeholder->parametrosTemplate(
-                mapaDeTexto($mapa),
-                is_array($dados) ? achatarParaTexto($dados) : [],
-            );
+            if ($placeholder->mapaEhNomeado($mapaTexto)) {
+                $nomeados = $placeholder->parametrosNomeados($mapaTexto, $doLead);
+                $nomes = array_keys($nomeados);
+                $parametros = array_values($nomeados);
+            } else {
+                $parametros = $placeholder->parametrosTemplate($mapaTexto, $doLead);
+            }
         } catch (ErroDeDominio $e) {
             $fila->aplicar(
                 $acaoId,
@@ -274,6 +290,7 @@ while (! $parada->pedida()) {
             // tradução — mesmo padrão do `ChannelId` no AMI.
             'ligacao:' . $ligacaoId,
             $imagemUrl,
+            $nomes,
         );
 
         $d = $politica->decidir($envio, numero($a['tentativas'] ?? null) + 1, $conf['max_tentativas']);
