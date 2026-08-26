@@ -150,6 +150,17 @@ while (! $parada->pedida()) {
     // ---- Ações de disparo ---------------------------------------------------
     $cred = $fila->credenciaisWhatsapp();
 
+    /*
+     * 🔴 SÓ O DISPARO VAI PELA MARKETING API. A resposta do operador nas Conversas
+     * continua no `/messages` mais abaixo: texto livre dentro da janela de 24 h não
+     * é marketing, e a MM API não o aceita.
+     *
+     * Lido a cada volta, junto das credenciais: é chave para um problema de
+     * plataforma — a Meta aceitando a mensagem e desistindo de entregar —, e voltar
+     * atrás tem que ser um clique na tela, não um restart.
+     */
+    $porMarketingApi = $fila->marketingApiAtiva();
+
     if ($cred === null) {
         // Avisa UMA vez e não a cada volta: sem integração cadastrada isto seria
         // uma linha a cada 5 s, e o log deixaria de servir para achar problema.
@@ -291,6 +302,7 @@ while (! $parada->pedida()) {
             'ligacao:' . $ligacaoId,
             $imagemUrl,
             $nomes,
+            $porMarketingApi,
         );
 
         $d = $politica->decidir($envio, numero($a['tentativas'] ?? null) + 1, $conf['max_tentativas']);
@@ -311,6 +323,9 @@ while (! $parada->pedida()) {
             'codigo' => $envio->codigo,
             'wamid' => $envio->wamid,
             'fbtrace' => $envio->fbtrace,
+            // Qual endpoint mandou. Sem isto, comparar a entrega antes e depois da
+            // MM API dependeria de lembrar quando a chave foi virada.
+            'via' => $porMarketingApi ? 'marketing_api' : 'messages',
         ]);
 
         if ($d->pararCanal) {

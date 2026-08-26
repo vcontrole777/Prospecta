@@ -58,6 +58,8 @@ final class Whatsapp
      *        template declara `HEADER format=IMAGE`. A Meta busca por HTTP.
      * @param list<string> $nomes nomes dos parâmetros, na MESMA ordem dos valores.
      *        Vazio = template posicional, que é o caso da maioria.
+     * @param bool $porMarketingApi manda pela Marketing Messages API em vez do
+     *        `/messages`. O CORPO é idêntico — muda só o recurso. Ver `recurso()`.
      */
     public function enviarTemplate(
         string $para,
@@ -67,6 +69,7 @@ final class Whatsapp
         ?string $correlacao = null,
         ?string $imagemUrl = null,
         array $nomes = [],
+        bool $porMarketingApi = false,
     ): Envio {
         $corpo = [
             'messaging_product' => 'whatsapp',
@@ -118,7 +121,7 @@ final class Whatsapp
         }
 
         $r = $this->transporte->postJson(
-            sprintf('https://graph.facebook.com/%s/%s/messages', $this->versaoApi, $this->numeroId),
+            $this->recurso($porMarketingApi ? 'marketing_messages' : 'messages'),
             $corpo,
             ['Authorization' => 'Bearer ' . $this->token],
         );
@@ -127,7 +130,26 @@ final class Whatsapp
     }
 
     /**
+     * A URL do recurso, sob o mesmo número.
+     *
+     * 🔴 O CORPO É IDÊNTICO NOS DOIS, e por isso não há um segundo método de envio.
+     * A Marketing Messages API recebe o mesmo JSON que o `/messages`; o que muda é o
+     * caminho, e com ele o tratamento que a Meta dá à entrega. Duplicar a montagem
+     * dos componentes — cabeçalho, corpo, parâmetro nomeado — para trocar uma
+     * palavra na URL criaria duas verdades sobre a forma da mensagem, e elas
+     * divergiriam na primeira mudança.
+     */
+    private function recurso(string $nome): string
+    {
+        return sprintf('https://graph.facebook.com/%s/%s/%s', $this->versaoApi, $this->numeroId, $nome);
+    }
+
+    /**
      * Texto livre — a resposta do operador dentro da janela de 24 h.
+     *
+     * 🔴 NUNCA PELA MARKETING API. Texto livre dentro da janela de 24 h não é
+     * marketing, e a MM API não o aceita. A separação é do CHAMADOR: este método só
+     * conhece o `/messages`.
      *
      * 🔴 SÓ DENTRO DA JANELA, e quem verifica isso NÃO é este método. A Meta recusa
      * texto livre fora dela com erro 131047, e o operador leria "falhou" sem saber por
@@ -153,7 +175,7 @@ final class Whatsapp
         }
 
         $r = $this->transporte->postJson(
-            sprintf('https://graph.facebook.com/%s/%s/messages', $this->versaoApi, $this->numeroId),
+            $this->recurso('messages'),
             $corpo,
             ['Authorization' => 'Bearer ' . $this->token],
         );
@@ -204,7 +226,7 @@ final class Whatsapp
         }
 
         $r = $this->transporte->postJson(
-            sprintf('https://graph.facebook.com/%s/%s/messages', $this->versaoApi, $this->numeroId),
+            $this->recurso('messages'),
             $corpo,
             ['Authorization' => 'Bearer ' . $this->token],
         );
