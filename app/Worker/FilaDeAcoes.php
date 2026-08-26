@@ -69,7 +69,7 @@ final class FilaDeAcoes
                 "SELECT a.id, a.tentativas, a.referencia_id,
                         le.telefone, le.dados_extras,
                         c.id AS campanha_id, c.canal_opt_in,
-                        c.template_nome, c.template_idioma, c.template_mapa,
+                        c.template_nome, c.template_idioma, c.template_mapa, c.template_corpo,
                         c.texto_mensagem, c.texto_sms,
                         -- Token da imagem do cabecalho, quando o template pede uma.
                         -- LEFT JOIN: a esmagadora maioria das Campanhas nao tem, e

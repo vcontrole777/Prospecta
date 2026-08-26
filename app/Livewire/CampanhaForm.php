@@ -521,6 +521,14 @@ final class CampanhaForm extends Component
             'template_nome' => trim($this->template_nome) === '' ? null : trim($this->template_nome),
             'template_idioma' => $this->template_idioma,
             'template_mapa' => $mapa === [] ? null : json_encode($mapa, JSON_UNESCAPED_UNICODE),
+            /*
+             * 🔴 O CORPO VAI JUNTO, e é o que faz a caixa de entrada deixar de
+             * mostrar `(template)`. O worker não tem como buscá-lo — quem fala com a
+             * Meta é esta tela —, e reconstruir na hora de exibir mostraria o corpo
+             * de HOJE, não o que a pessoa recebeu. Template aprovado pode ser editado
+             * e reaprovado; a mensagem que saiu é histórica.
+             */
+            'template_corpo' => self::texto($this->getTemplateAtualProperty()['corpo'] ?? null) ?: null,
             // Nulo quando o template nao pede imagem: cabecalho a mais e recusa igual.
             'imagem_id' => $this->getExigeImagemProperty() ? $this->imagem_id : null,
         ];

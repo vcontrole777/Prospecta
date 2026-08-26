@@ -338,6 +338,8 @@ final class Conversas extends Component
                     (SELECT COUNT(*) FROM conversa_mensagem m WHERE m.conversa_id = c.id) AS mensagens,
                     (SELECT m2.texto FROM conversa_mensagem m2
                       WHERE m2.conversa_id = c.id ORDER BY m2.id DESC LIMIT 1) AS ultimo_texto,
+                     (SELECT m4.tipo FROM conversa_mensagem m4
+                      WHERE m4.conversa_id = c.id ORDER BY m4.id DESC LIMIT 1) AS ultimo_tipo,
                     (SELECT m3.direcao FROM conversa_mensagem m3
                       WHERE m3.conversa_id = c.id ORDER BY m3.id DESC LIMIT 1) AS ultima_direcao,
                     EXISTS(SELECT 1 FROM bloqueio b WHERE b.telefone = c.telefone) AS bloqueado
@@ -354,7 +356,18 @@ final class Conversas extends Component
                 'telefone' => self::texto($c['telefone'] ?? null),
                 'lead_id' => is_numeric($c['lead_id'] ?? null) ? (int) $c['lead_id'] : null,
                 'mensagens' => self::inteiro($c['mensagens'] ?? null),
-                'ultimo_texto' => self::texto($c['ultimo_texto'] ?? null),
+                /*
+                 * 🔴 O RESUMO CAI NO TIPO quando não há texto, em vez de um traço.
+                 *
+                 * Medido em 26/08/2026: 213 das 243 mensagens não tinham texto — o
+                 * Disparo era gravado vazio —, e a lista inteira mostrava `—`. Duas
+                 * conversas diferentes ficavam indistinguíveis, e a lista deixava de
+                 * servir para escolher qual abrir.
+                 *
+                 * Mensagem nova já nasce com texto; isto é o que salva o histórico.
+                 */
+                'ultimo_texto' => self::texto($c['ultimo_texto'] ?? null)
+                    ?: self::resumoDoTipo(self::texto($c['ultimo_tipo'] ?? null)),
                 'ultima_direcao' => self::texto($c['ultima_direcao'] ?? null),
                 'bloqueado' => (bool) ($c['bloqueado'] ?? false),
                 'janela_aberta' => $janela->aberta($agora),
@@ -387,6 +400,28 @@ final class Conversas extends Component
             'janela_restante' => $janela->restante($agora),
             'janela_acabando' => $janela->acabando($agora),
         ];
+    }
+
+    /**
+     * Um resumo curto para a lista, quando a mensagem não tem texto.
+     *
+     * Vale para mídia — cujo conteúdo o webhook descarta — e para o histórico de
+     * Disparos gravados antes de o corpo do template ser guardado.
+     */
+    private static function resumoDoTipo(string $tipo): string
+    {
+        return match ($tipo) {
+            'audio' => '🎤 áudio',
+            'image' => '🖼️ imagem',
+            'sticker' => '💬 figurinha',
+            'video' => '🎬 vídeo',
+            'document' => '📄 documento',
+            'location' => '📍 localização',
+            'reaction' => 'reagiu à mensagem',
+            'template' => 'template enviado',
+            '' => '—',
+            default => $tipo,
+        };
     }
 
     /** @return list<array<string,mixed>> */
