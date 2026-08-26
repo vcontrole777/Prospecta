@@ -122,7 +122,7 @@ final class TemplateComImagemTest extends TestCase
         Livewire::test(CampanhaForm::class)
             ->set('templates', [[
                 'chave' => 'tpl|pt_BR', 'nome' => 'tpl', 'idioma' => 'pt_BR',
-                'parametros' => 1, 'cabecalho' => '', 'corpo' => 'Olá, {{1}}!', 'rotulo' => 'tpl',
+                'parametros' => 1, 'nomes' => ['1'], 'cabecalho' => '', 'corpo' => 'Olá, {{1}}!', 'rotulo' => 'tpl',
             ]])
             ->set('template_escolhido', 'tpl|pt_BR')
             ->set('template_nome', 'tpl')
@@ -142,7 +142,7 @@ final class TemplateComImagemTest extends TestCase
         Livewire::test(CampanhaForm::class)
             ->set('templates', [[
                 'chave' => 'tpl|pt_BR', 'nome' => 'tpl', 'idioma' => 'pt_BR',
-                'parametros' => 0, 'cabecalho' => '', 'corpo' => 'Sem parâmetro.', 'rotulo' => 'tpl',
+                'parametros' => 0, 'nomes' => [], 'cabecalho' => '', 'corpo' => 'Sem parâmetro.', 'rotulo' => 'tpl',
             ]])
             ->set('template_escolhido', 'tpl|pt_BR')
             ->set('template_nome', 'tpl')
@@ -178,7 +178,7 @@ final class TemplateComImagemTest extends TestCase
         Livewire::test(CampanhaForm::class)
             ->set('templates', [[
                 'chave' => 'tpl|pt_BR', 'nome' => 'tpl', 'idioma' => 'pt_BR',
-                'parametros' => 0, 'cabecalho' => 'IMAGE', 'corpo' => 'Oi.', 'rotulo' => 'tpl',
+                'parametros' => 0, 'nomes' => [], 'cabecalho' => 'IMAGE', 'corpo' => 'Oi.', 'rotulo' => 'tpl',
             ]])
             ->set('template_escolhido', 'tpl|pt_BR')
             ->set('template_nome', 'tpl')
@@ -207,7 +207,7 @@ final class TemplateComImagemTest extends TestCase
         Livewire::test(CampanhaForm::class)
             ->set('templates', [[
                 'chave' => 'tpl|pt_BR', 'nome' => 'tpl', 'idioma' => 'pt_BR',
-                'parametros' => 0, 'cabecalho' => '', 'corpo' => 'Oi.', 'rotulo' => 'tpl',
+                'parametros' => 0, 'nomes' => [], 'cabecalho' => '', 'corpo' => 'Oi.', 'rotulo' => 'tpl',
             ]])
             ->set('template_escolhido', 'tpl|pt_BR')
             ->set('template_nome', 'tpl')

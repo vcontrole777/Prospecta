@@ -35,7 +35,7 @@ final class TemplatesAprovados
     }
 
     /**
-     * @return array{ok:bool, templates:list<array{chave:string, nome:string, idioma:string, parametros:int, cabecalho:string, corpo:string, rotulo:string}>, erro:?string}
+     * @return array{ok:bool, templates:list<array{chave:string, nome:string, idioma:string, parametros:int, nomes:list<string>, cabecalho:string, corpo:string, rotulo:string}>, erro:?string}
      */
     public function listar(string $token, string $waba): array
     {
@@ -57,7 +57,7 @@ final class TemplatesAprovados
         // truncada e ainda tem o campo manual.
         $url = sprintf(
             'https://graph.facebook.com/%s/%s/message_templates'
-                . '?fields=name,status,language,components&limit=200&access_token=%s',
+                . '?fields=name,status,language,parameter_format,components&limit=200&access_token=%s',
             $this->versaoApi,
             urlencode(trim($waba)),
             urlencode($token),
@@ -105,7 +105,8 @@ final class TemplatesAprovados
                 'chave' => $t['name'] . '|' . $idioma,
                 'nome' => $t['name'],
                 'idioma' => $idioma,
-                'parametros' => self::parametros($corpoTexto),
+                'parametros' => count(self::nomes($corpoTexto)),
+                'nomes' => self::nomes($corpoTexto),
                 'cabecalho' => self::cabecalho($t),
                 'corpo' => $corpoTexto,
                 'rotulo' => $t['name'] . ' (' . ($idioma !== '' ? $idioma : 'sem idioma') . ')',
@@ -172,21 +173,55 @@ final class TemplatesAprovados
     }
 
     /**
-     * Quantos parâmetros posicionais o corpo usa.
+     * Os parâmetros do corpo, NA ORDEM em que aparecem — posicionais ou nomeados.
      *
-     * Conta o MAIOR índice, não a quantidade de ocorrências: `{{1}} ... {{1}} ... {{3}}`
-     * exige três parâmetros, porque a Meta os recebe por posição e uma lacuna manda o
-     * valor no lugar errado. É a mesma regra que `CampanhaForm` já aplica ao montar o
-     * `template_mapa`.
+     * 🔴 ANTES ISTO SÓ CONTAVA DÍGITOS, e template nomeado saía como "zero
+     * parâmetros". A Meta permite `{{nome}}` no lugar de `{{1}}`, e o efeito de não
+     * enxergar isso era triplo e silencioso: a tela dizia que o template não usa
+     * parâmetro, a validação RECUSAVA quem tentasse mapear um, e o envio ia sem o
+     * corpo — recusado com o mesmo `(#132000)` que custou a investigação de 25/08.
+     *
+     * Posicional devolve `['1','2']`; nomeado devolve `['nome','cpf']`. Quem
+     * diferencia depois é a chave do `template_mapa`, que se autodescreve.
+     *
+     * Para posicional o MAIOR índice manda, e não a quantidade de ocorrências:
+     * `{{1}} ... {{1}} ... {{3}}` exige três, porque a Meta os recebe por posição e
+     * uma lacuna manda o valor no lugar errado. Para nomeado a repetição é só
+     * repetição — o mesmo nome usado duas vezes é UM parâmetro.
+     *
+     * @return list<string>
      */
-    private static function parametros(string $corpo): int
+    private static function nomes(string $corpo): array
     {
-        if (preg_match_all('/\{\{\s*(\d+)\s*\}\}/', $corpo, $m) === 0) {
-            return 0;
+        if (preg_match_all('/\{\{\s*([^{}\s][^{}]*?)\s*\}\}/', $corpo, $m) === 0) {
+            return [];
         }
 
-        $indices = array_map('intval', $m[1]);
+        $achados = array_map('trim', $m[1]);
+        // `preg_match_all` > 0 implica captura, mas dizer isso em código é o que
+        // permite ao `max()` abaixo confiar que a lista não está vazia.
+        if ($achados === []) {
+            return [];
+        }
 
-        return $indices === [] ? 0 : max($indices);
+        $numericos = array_filter($achados, static fn (string $v): bool => preg_match('/^\d+$/', $v) === 1);
+
+        // Posicional: o maior índice define quantos, e os nomes são as posições.
+        if (count($numericos) === count($achados)) {
+            $maior = max(array_map('intval', $achados));
+
+            return array_map('strval', range(1, max(1, $maior)));
+        }
+
+        // Nomeado: a ordem de aparição, sem repetir.
+        $saida = [];
+        foreach ($achados as $a) {
+            if (! in_array($a, $saida, true)) {
+                $saida[] = $a;
+            }
+        }
+
+        return $saida;
     }
+
 }

@@ -291,6 +291,15 @@
                                 Idioma <span class="identificador">{{ $this->templateAtual['idioma'] }}</span>,
                                 @if ($this->templateAtual['parametros'] === 0)
                                     sem parâmetros.
+                                @elseif ($this->templateNomeado)
+                                    {{-- Template nomeado: a Meta manda `{{nome}}` no lugar de
+                                         `{{1}}`, e cada valor viaja com o nome junto. Dizer o
+                                         formato aqui evita o operador procurar "posição 1". --}}
+                                    parâmetros <strong>por nome</strong> —
+                                    @foreach ($this->nomesDosParametros as $n)
+                                        <span class="identificador">{{ $n }}</span>@if (! $loop->last), @endif
+                                    @endforeach
+                                    — informe a coluna de cada um abaixo.
                                 @else
                                     {{ $this->templateAtual['parametros'] }}
                                     {{ $this->templateAtual['parametros'] === 1 ? 'parâmetro' : 'parâmetros' }}
@@ -372,8 +381,10 @@
                 <div class="border border-[var(--rule)] p-4">
                     <div class="flex items-baseline justify-between">
                         <span class="rotulo">Parâmetros do template, na ordem</span>
-                        <button type="button" wire:click="adicionarParametro"
-                                class="btn btn-ghost btn-xs">+ parâmetro</button>
+                        @unless ($this->templateNomeado)
+                            <button type="button" wire:click="adicionarParametro"
+                                    class="btn btn-ghost btn-xs">+ parâmetro</button>
+                        @endunless
                     </div>
 
                     @if ($parametros === [])
@@ -390,7 +401,10 @@
                         <div class="mt-3 flex flex-col gap-2">
                             @foreach ($parametros as $i => $p)
                                 <div class="flex items-end gap-2">
-                                    <span class="num identificador w-8 pb-3 text-sm text-base-content/50">{{ $i + 1 }}</span>
+                                    <span class="identificador pb-3 text-sm text-base-content/50 {{ $this->templateNomeado ? 'w-32 truncate' : 'num w-8' }}"
+                                          @if ($this->templateNomeado) title="{{ $this->nomesDosParametros[$i] ?? '' }}" @endif>
+                                        {{ $this->templateNomeado ? ($this->nomesDosParametros[$i] ?? '?') : $i + 1 }}
+                                    </span>
                                     <div class="flex-1">
                                         <x-input
                                             wire:model="parametros.{{ $i }}"

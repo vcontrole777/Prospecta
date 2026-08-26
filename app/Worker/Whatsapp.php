@@ -47,9 +47,17 @@ final class Whatsapp
      * `$imagemUrl` nulo não emite o componente; quem decide é o formato declarado
      * pelo template, lido em `TemplatesAprovados::cabecalho`.
      *
-     * @param list<string> $parametros posicionais do corpo do template
+     * 🔴 POSICIONAL E NOMEADO, e a diferença é UMA chave no JSON. A Meta permite
+     * template com `{{nome}}` no lugar de `{{1}}`; nesse caso cada parâmetro precisa
+     * levar `parameter_name` junto do valor. Sem isso ela recusa com o MESMO
+     * `(#132000)` do cabeçalho ausente — mensagem que fala de "parameters" e não
+     * diz qual dos vários sentidos disso está errado.
+     *
+     * @param list<string> $parametros valores do corpo, NA ORDEM
      * @param ?string $imagemUrl URL pública da imagem do cabeçalho, quando o
      *        template declara `HEADER format=IMAGE`. A Meta busca por HTTP.
+     * @param list<string> $nomes nomes dos parâmetros, na MESMA ordem dos valores.
+     *        Vazio = template posicional, que é o caso da maioria.
      */
     public function enviarTemplate(
         string $para,
@@ -58,6 +66,7 @@ final class Whatsapp
         array $parametros,
         ?string $correlacao = null,
         ?string $imagemUrl = null,
+        array $nomes = [],
     ): Envio {
         $corpo = [
             'messaging_product' => 'whatsapp',
@@ -82,13 +91,20 @@ final class Whatsapp
         }
 
         if ($parametros !== []) {
-            $componentes[] = [
-                'type' => 'body',
-                'parameters' => array_map(
-                    static fn (string $v): array => ['type' => 'text', 'text' => $v],
-                    $parametros,
-                ),
-            ];
+            $doCorpo = [];
+            foreach ($parametros as $i => $valor) {
+                $p = ['type' => 'text', 'text' => $valor];
+                // `parameter_name` SÓ quando há nome. Mandá-lo num template
+                // posicional é recusa igual — o erro da Meta é o mesmo nos dois
+                // sentidos, e por isso quem decide é o formato do template, lido em
+                // `TemplatesAprovados::nomes`.
+                if (isset($nomes[$i]) && $nomes[$i] !== '') {
+                    $p['parameter_name'] = $nomes[$i];
+                }
+                $doCorpo[] = $p;
+            }
+
+            $componentes[] = ['type' => 'body', 'parameters' => $doCorpo];
         }
 
         if ($componentes !== []) {

@@ -106,19 +106,87 @@ final class Placeholder
 
         $saida = [];
         foreach ($posicoes as $pos) {
-            $coluna = $mapa[(string) $pos] ?? $mapa[$pos];
-            if (! array_key_exists($coluna, $dados)) {
-                throw ErroDeDominio::colunaAusente($coluna);
-            }
-            $valor = trim((string) $dados[$coluna]);
-            if ($valor === '') {
-                throw ErroDeDominio::valorVazio($coluna);
-            }
-            $this->conferirValorDeTemplate($coluna, $valor);
-            $saida[] = $valor;
+            $saida[] = $this->valorDaColuna($mapa[(string) $pos] ?? $mapa[$pos], $dados);
         }
 
         return $saida;
+    }
+
+    /**
+     * O mapa é NOMEADO?
+     *
+     * 🔴 A CHAVE SE AUTODESCREVE, e por isso não há coluna nova no esquema. Mapa
+     * posicional tem chaves `"1"`, `"2"`; mapa nomeado tem `"nome"`, `"cpf"`. O
+     * worker precisa saber a diferença e NÃO fala com a Meta — ele só tem o
+     * `campanha.template_mapa` —, então a distinção tem que caber no próprio valor.
+     *
+     * Mapa vazio é POSICIONAL: template sem parâmetro é o caso mais comum, e é o
+     * caminho que já existia.
+     *
+     * @param array<array-key,string> $mapa
+     */
+    public function mapaEhNomeado(array $mapa): bool
+    {
+        foreach (array_keys($mapa) as $chave) {
+            if (preg_match('/^[1-9][0-9]*$/', (string) $chave) !== 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Parâmetros NOMEADOS de template: nome do parâmetro => valor do Lead.
+     *
+     * 🔴 IRMÃO DE `parametrosTemplate`, e separado dele de propósito. O caminho
+     * posicional carrega uma regra que aqui não existe — a sequência sem lacuna, e a
+     * armadilha do `range(1, 0)` que já custou quatro Ações em produção. Nomeado não
+     * tem ordem nem sequência: cada parâmetro se identifica sozinho, e exigir
+     * sequência ali seria inventar uma regra da plataforma que ela não tem.
+     *
+     * O que os dois COMPARTILHAM — coluna ausente, valor vazio, conferência do que a
+     * Meta recusa — está em `valorDaColuna`, chamado pelos dois. Duplicar essas três
+     * regras é que faria elas divergirem.
+     *
+     * @param array<array-key,string> $mapa nome do parâmetro => nome da coluna
+     * @param array<string,string|int|float|null> $dados
+     * @return array<string,string>
+     */
+    public function parametrosNomeados(array $mapa, array $dados): array
+    {
+        $saida = [];
+        foreach ($mapa as $nome => $coluna) {
+            $nome = trim((string) $nome);
+            if ($nome === '') {
+                throw ErroDeDominio::mapaNaoSequencial('nome de parâmetro vazio');
+            }
+            $saida[$nome] = $this->valorDaColuna($coluna, $dados);
+        }
+
+        return $saida;
+    }
+
+    /**
+     * O valor de uma coluna do Lead, com as três recusas que valem para os dois
+     * formatos de template.
+     *
+     * @param array<string,string|int|float|null> $dados
+     */
+    private function valorDaColuna(string $coluna, array $dados): string
+    {
+        if (! array_key_exists($coluna, $dados)) {
+            throw ErroDeDominio::colunaAusente($coluna);
+        }
+
+        $valor = trim((string) $dados[$coluna]);
+        if ($valor === '') {
+            throw ErroDeDominio::valorVazio($coluna);
+        }
+
+        $this->conferirValorDeTemplate($coluna, $valor);
+
+        return $valor;
     }
 
     /**

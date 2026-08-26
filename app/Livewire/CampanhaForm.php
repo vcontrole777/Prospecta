@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire;
 
+use App\Dominio\Placeholder;
 use App\Seguranca\Cofre;
 use App\Whatsapp\TemplatesAprovados;
 use App\Worker\TransporteCurl;
@@ -108,7 +109,7 @@ final class CampanhaForm extends Component
      * qualquer campo do formulário; buscar aqui seria uma chamada à Graph API por
      * caractere — lento para o operador e abuso da cota da Meta.
      *
-     * @var list<array{chave:string, nome:string, idioma:string, parametros:int, cabecalho:string, corpo:string, rotulo:string}>
+     * @var list<array{chave:string, nome:string, idioma:string, parametros:int, nomes:list<string>, cabecalho:string, corpo:string, rotulo:string}>
      */
     public array $templates = [];
 
@@ -159,6 +160,24 @@ final class CampanhaForm extends Component
      * Quem decide e o formato declarado pelo template, nao o operador.
      */
     public ?int $imagem_id = null;
+
+    /**
+     * As chaves do `template_mapa` como estavam gravadas, quando ele é NOMEADO.
+     *
+     * 🔴 EXISTE PARA NÃO CONVERTER MAPA NOMEADO EM POSICIONAL SEM QUERER.
+     *
+     * `salvar()` monta a chave a partir dos nomes do template. Se a lista de
+     * templates não carregar — Meta fora do ar, token vencido —, esses nomes vêm
+     * vazios e a chave cairia na POSIÇÃO: um `{"nome":"cliente"}` viraria
+     * `{"1":"cliente"}` só por o operador ter salvo o horário de trabalho. O worker
+     * então leria como posicional e mandaria sem `parameter_name`, e a Meta recusaria
+     * a Campanha inteira.
+     *
+     * Guardando o que já estava lá, salvar sem a lista preserva o formato.
+     *
+     * @var list<string>
+     */
+    public array $nomes_do_mapa = [];
 
     public function mount(?int $id = null): void
     {
@@ -242,14 +261,63 @@ final class CampanhaForm extends Component
         if (is_array($mapa)) {
             // Reordena por posição numérica: a ordem das chaves no JSON não é
             // garantia de nada, e ler na ordem errada trocaria os parâmetros.
-            $porPosicao = [];
-            foreach ($mapa as $pos => $coluna) {
+            /*
+             * 🔴 A ORDEM VEM DO TEMPLATE quando ele é nomeado.
+             *
+             * Mapa posicional se reordena sozinho pela chave numérica. Nomeado não
+             * tem ordem própria — `{"cpf":…,"nome":…}` no JSON não diz qual vem
+             * primeiro —, e a ordem que importa é a do template. Ordenar nomeado
+             * alfabeticamente trocaria os valores de lugar em silêncio.
+             */
+            $texto = [];
+            foreach ($mapa as $chave => $coluna) {
                 if (is_string($coluna)) {
-                    $porPosicao[(int) $pos] = $coluna;
+                    $texto[(string) $chave] = $coluna;
                 }
             }
-            ksort($porPosicao);
-            $this->parametros = array_values($porPosicao);
+
+            /*
+             * 🔴 QUEM DECIDE É A CHAVE DO MAPA, não a lista de templates.
+             *
+             * Ordenar mapa NOMEADO por `(int)` colapsa tudo: `(int)'nome'` e
+             * `(int)'cpf'` são ZERO, as colunas colidem e o operador reabre a
+             * Campanha com o mapeamento destruído. E a lista de templates pode não
+             * estar carregada — a Meta pode estar fora do ar, ou o token vencido —,
+             * então ela não serve para decidir isso.
+             *
+             * Mapa nomeado preserva a ORDEM DO JSON aqui, e a ordem do template é
+             * aplicada logo abaixo, quando ela existir. Sem a lista, a ordem do JSON
+             * é a melhor informação disponível e nada se perde.
+             */
+            if ((new Placeholder())->mapaEhNomeado($texto)) {
+                /*
+                 * 🔴 A ORDEM AQUI É A DO MySQL, não a que foi gravada. A coluna é do
+                 * tipo `json` e ele NORMALIZA as chaves do objeto — por tamanho e
+                 * depois alfabeticamente —, então `{"documento":…,"nome":…}` volta
+                 * como `{"nome":…,"documento":…}`. Medido.
+                 *
+                 * Não é problema: quem manda na ordem é o template, aplicado logo
+                 * abaixo. Isto só garante que nenhuma coluna se perca ou colida
+                 * enquanto a lista de templates não estiver disponível.
+                 */
+                $this->parametros = array_values($texto);
+                $this->nomes_do_mapa = array_map('strval', array_keys($texto));
+
+                $nomesDoTemplate = $this->getNomesDosParametrosProperty();
+                if ($nomesDoTemplate !== [] && $this->getTemplateNomeadoProperty()) {
+                    $this->parametros = [];
+                    foreach ($nomesDoTemplate as $n) {
+                        $this->parametros[] = $texto[$n] ?? '';
+                    }
+                }
+            } else {
+                $porPosicao = [];
+                foreach ($texto as $pos => $coluna) {
+                    $porPosicao[(int) $pos] = $coluna;
+                }
+                ksort($porPosicao);
+                $this->parametros = array_values($porPosicao);
+            }
         }
 
         $this->imagem_id = self::inteiro($c['imagem_id'] ?? null) ?: null;
@@ -261,6 +329,34 @@ final class CampanhaForm extends Component
      * Lido do que a Meta declara, nao do que o operador acha. E esta pergunta que
      * decide se a tela cobra a imagem e se o envio manda o componente `header`.
      */
+    /**
+     * Os nomes dos parâmetros do template escolhido.
+     *
+     * Posicional devolve `['1','2']`; nomeado devolve `['nome','cpf']`. É esta lista
+     * que vira a CHAVE do `template_mapa`, e é a chave que depois diz ao worker qual
+     * formato usar — sem coluna nova no esquema.
+     *
+     * @return list<string>
+     */
+    public function getNomesDosParametrosProperty(): array
+    {
+        $t = $this->getTemplateAtualProperty();
+
+        return is_array($t['nomes'] ?? null) ? $t['nomes'] : [];
+    }
+
+    /** O template escolhido usa `{{nome}}` em vez de `{{1}}`? */
+    public function getTemplateNomeadoProperty(): bool
+    {
+        foreach ($this->getNomesDosParametrosProperty() as $n) {
+            if (preg_match('/^\d+$/', $n) !== 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function getExigeImagemProperty(): bool
     {
         return ($this->getTemplateAtualProperty()['cabecalho'] ?? '') === 'IMAGE';
@@ -369,11 +465,25 @@ final class CampanhaForm extends Component
     {
         $dados = $this->validate($this->regras(), $this->mensagens(), $this->rotulos());
 
+        /*
+         * 🔴 A CHAVE DO MAPA É O NOME DO PARÂMETRO, e para template posicional o
+         * "nome" é a própria posição. Assim `{"1":"nome"}` continua saindo igual para
+         * as Campanhas que já existem, e `{"nome":"cliente"}` sai para as nomeadas —
+         * e o worker distingue as duas só de olhar a chave.
+         */
+        $nomes = $this->getNomesDosParametrosProperty();
+
+        // Sem a lista de templates, cai no que JÁ estava gravado antes de cair na
+        // posição — senão salvar a Campanha converteria um mapa nomeado em posicional.
+        if ($nomes === [] || ! $this->getTemplateNomeadoProperty()) {
+            $nomes = $this->nomes_do_mapa !== [] ? $this->nomes_do_mapa : $nomes;
+        }
+
         $mapa = [];
         foreach ($this->parametros as $i => $coluna) {
             $coluna = trim($coluna);
             if ($coluna !== '') {
-                $mapa[(string) ($i + 1)] = $coluna;
+                $mapa[$nomes[$i] ?? (string) ($i + 1)] = $coluna;
             }
         }
 
@@ -737,10 +847,46 @@ final class CampanhaForm extends Component
             if ($t['chave'] === $valor) {
                 $this->template_nome = $t['nome'];
                 $this->template_idioma = $t['idioma'];
+                $this->ajustarLinhasDeParametro($t['nomes']);
 
                 return;
             }
         }
+    }
+
+    /**
+     * Template NOMEADO tem as linhas ditadas por ele; posicional continua manual.
+     *
+     * 🔴 SEM ISTO O MODO NOMEADO FICA SEM SAÍDA. As linhas de parâmetro nascem do
+     * botão "+ parâmetro", e no modo nomeado esse botão não existe — a quantidade e
+     * os nomes vêm do template, não da escolha do operador. Sem criar as linhas aqui,
+     * a tela mostraria "informe a coluna de cada um" e nenhum campo para informar.
+     *
+     * As colunas já preenchidas são PRESERVADAS por posição: trocar de template
+     * nomeado com a mesma aridade não faz o operador redigitar tudo.
+     *
+     * @param list<string> $nomes
+     */
+    private function ajustarLinhasDeParametro(array $nomes): void
+    {
+        $nomeado = false;
+        foreach ($nomes as $n) {
+            if (preg_match('/^\d+$/', $n) !== 1) {
+                $nomeado = true;
+                break;
+            }
+        }
+
+        if (! $nomeado) {
+            return;
+        }
+
+        $novo = [];
+        foreach (array_keys($nomes) as $i) {
+            $novo[] = $this->parametros[$i] ?? '';
+        }
+
+        $this->parametros = $novo;
     }
 
     /**
@@ -767,7 +913,7 @@ final class CampanhaForm extends Component
     /**
      * O template escolhido agora, para a tela mostrar corpo e nº de parâmetros.
      *
-     * @return array{chave:string, nome:string, idioma:string, parametros:int, cabecalho:string, corpo:string, rotulo:string}|null
+     * @return array{chave:string, nome:string, idioma:string, parametros:int, nomes:list<string>, cabecalho:string, corpo:string, rotulo:string}|null
      */
     public function getTemplateAtualProperty(): ?array
     {
