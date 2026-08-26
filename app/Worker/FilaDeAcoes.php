@@ -217,6 +217,23 @@ final class FilaDeAcoes
     }
 
     /**
+     * O Disparo deve sair pela Marketing Messages API?
+     *
+     * 🔴 LIDO A CADA VOLTA, junto das credenciais, e não na partida. É chave para
+     * um problema de PLATAFORMA — a Meta aceitando a mensagem e desistindo de
+     * entregar —, e voltar atrás precisa ser um clique na tela, não um restart.
+     */
+    public function marketingApiAtiva(): bool
+    {
+        $st = $this->pdo->query('SELECT marketing_api_ativa FROM configuracao WHERE id = 1');
+        if ($st === false) {
+            return false;
+        }
+
+        return (bool) $st->fetchColumn();
+    }
+
+    /**
      * Credenciais da integração de WhatsApp em vigor.
      *
      * Vem de `configuracao.integracao_whatsapp_id`, e não de "a primeira ativa":

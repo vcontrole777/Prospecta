@@ -56,6 +56,16 @@ final class Configuracao extends Component
 
     public int $gravacao_retencao_dias = 15;
 
+    /**
+     * O Disparo sai pela Marketing Messages API da Meta?
+     *
+     * 🔴 NASCE DESLIGADA e não é decisão de gosto: a MM API só aceita envio depois
+     * que a WABA chega a `ONBOARDED`. Enquanto ela estiver em
+     * `PENDING_INTERNAL_SETUP` — o estado logo depois de aceitar os Termos —, ligar
+     * isto faz todo Disparo bater num endpoint que recusa.
+     */
+    public bool $marketing_api_ativa = false;
+
     public bool $classificador_pos_ativo = true;
 
     public int $pos_silencio_inicial_ms = 4500;
@@ -117,6 +127,7 @@ final class Configuracao extends Component
         $this->gravacao_ativa = (bool) ($c['gravacao_ativa'] ?? true);
         $this->gravacao_retencao_dias = max(1, self::inteiro($c['gravacao_retencao_dias'] ?? null) ?: 15);
 
+        $this->marketing_api_ativa = (bool) ($c['marketing_api_ativa'] ?? false);
         $this->classificador_pos_ativo = (bool) ($c['classificador_pos_ativo'] ?? true);
 
         // Coluna que não disse nada cai no default do parâmetro — a regra de "não
@@ -229,6 +240,7 @@ final class Configuracao extends Component
             'dias_semana' => $this->dias_semana === [] ? null : json_encode($this->dias_semana),
             'gravacao_ativa' => $this->gravacao_ativa ? 1 : 0,
             'gravacao_retencao_dias' => $this->gravacao_retencao_dias,
+            'marketing_api_ativa' => $this->marketing_api_ativa ? 1 : 0,
             'classificador_pos_ativo' => $this->classificador_pos_ativo ? 1 : 0,
         ] + PosAtendimento::padrao()->com($this->valoresDoFormulario())->paraColunas());
 

@@ -64,6 +64,31 @@
 
             <x-checkbox label="Gravar as chamadas" wire:model="gravacao_ativa" />
 
+            <div class="border-t border-[var(--rule)] pt-4">
+                <x-checkbox label="Enviar Disparo pela Marketing Messages API"
+                            wire:model="marketing_api_ativa" />
+
+                {{-- O que ela resolve, e o que ela NÃO resolve. Sem isto, a chave
+                     vira promessa de "melhora a entrega" e o operador liga achando
+                     que resolve política e qualidade do número, que ela não toca. --}}
+                <p class="mt-2 text-sm text-base-content/60">
+                    Caminho otimizado da Meta para mensagem de marketing. Serve contra a
+                    recusa <span class="identificador">healthy ecosystem engagement</span> —
+                    quando a Meta aceita a mensagem e depois desiste de entregar.
+                </p>
+                <p class="mt-1 text-sm text-base-content/60">
+                    <strong>Só ligue depois que a WhatsApp Business Account estiver
+                    <span class="identificador">ONBOARDED</span></strong> no painel da Meta. Antes
+                    disso o endpoint recusa e todo Disparo falha. Aceitar os Termos deixa a
+                    conta em <span class="identificador">PENDING_INTERNAL_SETUP</span> por um
+                    tempo.
+                </p>
+                <p class="mt-1 text-sm text-base-content/60">
+                    Vale só para o Disparo de Campanha. A resposta do operador nas Conversas
+                    continua pelo caminho normal — texto livre não é marketing.
+                </p>
+            </div>
+
             <x-input label="Apagar a gravação depois de (dias)" wire:model="gravacao_retencao_dias"
                      type="number" min="1" max="3650" class="num" />
 
