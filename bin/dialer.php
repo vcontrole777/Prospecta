@@ -366,8 +366,38 @@ while ($rodando) {
     $avisouSemRota = false;
 
     // ---- origina -----------------------------------------------------------
+    /*
+     * 🔴 O ORÇAMENTO DA INSTÂNCIA, e a razão de ele existir.
+     *
+     * `PROSPECTA_CANAIS` é chamado de "o contratado da INSTÂNCIA" desde sempre, e não
+     * era: o laço abaixo roda POR CAMPANHA, e o teto era aplicado dentro dele com os
+     * ocupados daquela Campanha. Com três Campanhas no ar e 100 contratados, o
+     * produto segurava até 300 canais do tronco sem ninguém ter pedido.
+     *
+     * Medido em 26/08/2026: 60 contratados com duas Campanhas deram pico de 117
+     * simultâneas; 100 com três deram 170 — e o `503` da rota saltou de 0,66% para
+     * 8,95% enquanto o atendimento caía de 44,9% para 19,0%.
+     *
+     * Lido UMA vez por volta e descontado a cada originação: reler por Campanha
+     * custaria uma consulta por Campanha e ainda assim ficaria velho no meio do
+     * laço, que é exatamente o defeito que isto conserta.
+     */
+    // `$conf` vem de um `require` e é MIXED nesta fronteira — o `config/dialer.php`
+    // já converte, mas o tipo não atravessa. Conferir aqui é o que o `bin/worker.php`
+    // faz com o helper `numero()`, e é o que impede um valor estranho virar orçamento
+    // negativo ou float no meio da conta.
+    $contratado = is_numeric($conf['canais_contratados']) ? (int) $conf['canais_contratados'] : 0;
+    $orcamento = max(0, $contratado - $fila->contarOcupadosNaInstancia());
+
     foreach ($fila->campanhasAtivas($conf['canais_contratados'], $conf['timeout_toque_seg']) as $c) {
         $campanhaId = $c['id'];
+
+        // Instância cheia: as Campanhas seguintes não originam nesta volta. `break` e
+        // não `continue` — o orçamento é o mesmo para todas, e testar de novo a cada
+        // uma só gastaria voltas de laço para chegar na mesma conclusão.
+        if ($orcamento < 1) {
+            break;
+        }
 
         // proteção
         $j = $janela[$campanhaId] ?? [];
@@ -409,6 +439,7 @@ while ($rodando) {
             $fila->contarOcupados($campanhaId),
             $disponiveis,
             $conf['intervalo_seg'],
+            $orcamento,
         );
         if ($quantas < 1) {
             continue;
@@ -487,6 +518,14 @@ while ($rodando) {
                 ]);
                 continue;
             }
+
+            /*
+             * Desconta do orçamento SÓ o que a rota aceitou. Descontar na
+             * reivindicação contaria também a recusada logo acima — e recusada não
+             * ocupa canal, então o orçamento encolheria sem motivo e a instância
+             * discaria abaixo do contratado.
+             */
+            $orcamento--;
 
             $log->linha('originada', 'Originate aceito', [
                 'ligacao' => $ligacaoId, 'tentativa' => $lead['tentativa'], 'bina' => $numero ?? 'omitida',

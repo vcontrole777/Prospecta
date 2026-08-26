@@ -129,6 +129,24 @@ final class Fila
         return self::numero($st->fetchColumn());
     }
 
+    /**
+     * Quantas chamadas a INSTÂNCIA está segurando agora, somando tudo.
+     *
+     * 🔴 TODAS AS CAMPANHAS, inclusive as PAUSADAS. Pausar uma Campanha não desliga
+     * as chamadas dela que já estão no ar: elas seguem ocupando canal do tronco até
+     * o desligamento. Contar só as ativas subestimaria o consumo justamente no
+     * instante em que alguém pausa uma para "aliviar" — e o alívio não chegou ainda.
+     *
+     * É o par de `contarOcupados`, que conta por Campanha. Os dois valem juntos: o
+     * teto da Campanha protege a Campanha, este protege o tronco.
+     */
+    public function contarOcupadosNaInstancia(): int
+    {
+        $st = $this->pdo->query('SELECT COUNT(*) FROM ligacao WHERE encerrada_em IS NULL');
+
+        return $st === false ? 0 : self::numero($st->fetchColumn());
+    }
+
     public function contarDisponiveis(int $campanhaId): int
     {
         $st = $this->pdo->prepare('SELECT COUNT(*) FROM leads WHERE campanha_id = :c AND status = 1');

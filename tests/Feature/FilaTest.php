@@ -414,4 +414,40 @@ final class FilaTest extends TestCase
     {
         return (int) DB::table('leads')->where('id', $leadId)->value('try');
     }
+    /**
+     * 🔴 O OCUPADO DA INSTÂNCIA CONTA CAMPANHA PAUSADA TAMBÉM.
+     *
+     * Pausar uma Campanha não desliga as chamadas dela que já estão no ar: elas
+     * seguem ocupando canal do tronco até o desligamento. Contar só as ativas
+     * subestimaria o consumo justamente no instante em que alguém pausa uma para
+     * "aliviar" — e o alívio ainda não chegou.
+     */
+    #[Test]
+    public function o_ocupado_da_instancia_soma_todas_as_campanhas(): void
+    {
+        $ativa = (int) DB::table('campanha')->insertGetId([
+            'nome' => 'ativa', 'tipo' => 'opt_in', 'status' => 1, 'criada_em' => now(),
+        ]);
+        $pausada = (int) DB::table('campanha')->insertGetId([
+            'nome' => 'pausada', 'tipo' => 'opt_in', 'status' => 2, 'criada_em' => now(),
+        ]);
+
+        foreach ([$ativa, $ativa, $pausada] as $c) {
+            DB::table('ligacao')->insert([
+                'campanha_id' => $c, 'numero_tentativa' => 1, 'iniciada_em' => now(),
+            ]);
+        }
+
+        // E uma já encerrada, que NÃO ocupa canal nenhum.
+        DB::table('ligacao')->insert([
+            'campanha_id' => $ativa, 'numero_tentativa' => 1,
+            'iniciada_em' => now(), 'encerrada_em' => now(),
+        ]);
+
+        $fila = new Fila(DB::connection()->getPdo());
+
+        $this->assertSame(3, $fila->contarOcupadosNaInstancia(), 'as três em voo, a encerrada fora');
+        $this->assertSame(2, $fila->contarOcupados($ativa), 'e o por Campanha continua por Campanha');
+    }
+
 }
