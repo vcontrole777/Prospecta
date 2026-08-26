@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire;
 
 use App\Dominio\Telefone;
+use App\Importacao\Cabecalho;
 use App\Importacao\Csv;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +44,17 @@ final class ImportarLista extends Component
 
     /** @var list<string> */
     public array $colunas = [];
+
+    /**
+     * O que na primeira linha parece dado em vez de nome de coluna.
+     *
+     * 🔴 AVISO, NÃO RECUSA. Cabeçalho legítimo pode ter nome estranho — CRM exporta
+     * código de campo como "1281" —, e recusar impediria importação válida. Ver
+     * `Importacao\Cabecalho`.
+     *
+     * @var list<array{coluna:string, motivo:string}>
+     */
+    public array $cabecalhoSuspeito = [];
 
     /** @var list<list<string>> */
     public array $amostra = [];
@@ -121,6 +133,7 @@ final class ImportarLista extends Component
 
         $this->colunas = [];
         $this->amostra = [];
+        $this->cabecalhoSuspeito = [];
 
         foreach ($csv->linhas($fluxo, $this->delimitador, $this->codificacao) as $i => $linha) {
             if ($i === 0) {
@@ -140,6 +153,7 @@ final class ImportarLista extends Component
             return;
         }
 
+        $this->cabecalhoSuspeito = (new Cabecalho())->suspeitas($this->colunas);
         $this->colunaTelefone = $this->adivinharColunaTelefone();
         $this->etapa = 'mapear';
     }
