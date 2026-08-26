@@ -446,6 +446,67 @@ final class IntegracoesTest extends TestCase
             ->assertSee('A Meta vai recusar esta URL');
     }
 
+    /**
+     * A caixa do webhook do httpSMS, e o aviso que evita a caça ao fantasma.
+     *
+     * 🔴 SEM `signing_key`, O SINTOMA É MUDO. `Sms\Assinatura` falha FECHADA de
+     * propósito — a rota é pública — então o endpoint recusa todo evento. O SMS
+     * continua SAINDO normalmente; o que não acontece é o status voltar. A Ação fica
+     * em `enviado` para sempre e ninguém desconfia da chave olhando para isso.
+     *
+     * É o oposto da Meta, que responde a um desafio de verificação e avisa na hora
+     * se algo está errado. Por isso este aviso existe e o da Meta não precisa dele.
+     */
+    #[Test]
+    public function mostra_o_que_colar_no_httpsms_e_avisa_quando_falta_a_chave(): void
+    {
+        $id = (int) DB::table('integracao')->insertGetId([
+            'tipo' => 'sms',
+            'provedor' => 'httpsms',
+            'nome' => 'httpSMS',
+            // Sem `signing_key`: é o caso que o aviso existe para pegar.
+            'credenciais' => (new Cofre((string) config('app.key')))->cifrarParaColuna([
+                'api_key' => 'chave-de-api',
+                'remetente' => '5511987654321',
+            ]),
+        ]);
+        Livewire::test(Integracoes::class)->call('usar', $id);
+
+        Livewire::test(Integracoes::class)
+            ->assertSee('/webhook/sms')
+            ->assertSee('Cadastre o webhook no painel do httpSMS')
+            ->assertSee('Sem chave de assinatura, nenhum status vai voltar');
+    }
+
+    /** Com a chave, a URL aparece e o aviso some. */
+    #[Test]
+    public function com_a_chave_de_assinatura_o_aviso_some(): void
+    {
+        $id = (int) DB::table('integracao')->insertGetId([
+            'tipo' => 'sms',
+            'provedor' => 'httpsms',
+            'nome' => 'httpSMS',
+            'credenciais' => (new Cofre((string) config('app.key')))->cifrarParaColuna([
+                'api_key' => 'chave-de-api',
+                'remetente' => '5511987654321',
+                'signing_key' => 'a-mesma-chave-do-painel',
+            ]),
+        ]);
+        Livewire::test(Integracoes::class)->call('usar', $id);
+
+        Livewire::test(Integracoes::class)
+            ->assertSee('/webhook/sms')
+            ->assertDontSee('Sem chave de assinatura');
+    }
+
+    /** Sem integração de SMS em vigor não há o que cadastrar, e a caixa não aparece. */
+    #[Test]
+    public function sem_sms_em_vigor_a_caixa_do_httpsms_nao_aparece(): void
+    {
+        Livewire::test(Integracoes::class)
+            ->assertDontSee('Cadastre o webhook no painel do httpSMS');
+    }
+
     private function cadastrar(): \Livewire\Features\SupportTesting\Testable
     {
         // A tela descobre o Phone Number ID pelo token, então todo cadastro passa pela Meta —

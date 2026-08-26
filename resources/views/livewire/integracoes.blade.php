@@ -175,6 +175,54 @@
         </div>
     @endif
 
+    @if ($webhookSms !== null)
+        {{-- O par do bloco acima, para o httpSMS. Ver `webhookSms()` em Integracoes.php:
+             a diferença que importa é que o httpSMS NÃO avisa quando algo está errado —
+             ele aceita o cadastro e os eventos somem em silêncio. --}}
+        <div class="mt-6 border border-[var(--rule)] p-4">
+            <h2 class="text-sm font-semibold">Cadastre o webhook no painel do httpSMS</h2>
+            <p class="mt-1 text-sm text-base-content/70">
+                Em <span class="identificador">httpsms.com</span> → Webhooks → criar. Marque os
+                eventos <span class="identificador">message.phone.sent</span>,
+                <span class="identificador">message.phone.delivered</span>,
+                <span class="identificador">message.send.failed</span> e
+                <span class="identificador">message.send.expired</span>.
+            </p>
+
+            <div class="mt-3">
+                <span class="rotulo">URL do webhook</span>
+                <p class="identificador mt-1 break-all text-sm">{{ $webhookSms['url'] }}</p>
+            </div>
+
+            @unless ($webhookSms['chave'])
+                {{-- 🔴 O aviso que evita a caça ao fantasma: sem `signing_key` o endpoint
+                     recusa TODO evento, o SMS continua saindo normalmente, e só o status
+                     nunca volta. Ninguém desconfia da chave olhando para isso. --}}
+                <div class="mt-3 border border-warning/50 p-3 text-sm">
+                    <p class="text-warning">Sem chave de assinatura, nenhum status vai voltar</p>
+                    <p class="mt-1 text-base-content/70">
+                        Esta integração está sem <strong>signing key</strong>. O endpoint recusa
+                        todo evento que chega sem assinatura conferível — é a única proteção de
+                        uma rota pública. O envio continua funcionando; o que não acontece é o
+                        <strong>status</strong>: a Ação fica em <em>enviado</em> para sempre, sem
+                        nunca virar entregue nem falhou. Use a <strong>mesma</strong> chave aqui e
+                        no painel do httpSMS.
+                    </p>
+                </div>
+            @endunless
+
+            @unless ($webhookSms['https'])
+                <div class="mt-3 border border-warning/50 p-3 text-sm">
+                    <p class="text-warning">Esta URL não é HTTPS</p>
+                    <p class="mt-1 text-base-content/70">
+                        O httpSMS entrega evento por HTTPS. Sem certificado válido o status não
+                        volta — mesmo sintoma do aviso acima, causa diferente.
+                    </p>
+                </div>
+            @endunless
+        </div>
+    @endif
+
     @if ($integracoes === [])
         <div class="mt-6 border border-[var(--rule)] p-8 text-center text-sm">
             <p class="text-base-content/70">Nenhuma integração cadastrada.</p>

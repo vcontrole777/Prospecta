@@ -235,6 +235,85 @@ final class BancoGravarTest extends TestCase
 
     // ---------------------------------------------------------------- auxiliares
 
+    // ------------------------------------------------- a marca de atendimento
+
+    /**
+     * 🔴 `atendida_em` PRECISA EXISTIR ENQUANTO A LIGAÇÃO ESTÁ ABERTA.
+     *
+     * Ela era escrita só por `gravar()`, no mesmo UPDATE que preenche `encerrada_em`.
+     * Consequência que passou despercebida: numa Ligação ABERTA a coluna era NULL
+     * SEMPRE — não porque ninguém atendeu, mas porque a única escrita acontecia no
+     * fim. Toda consulta de "chamadas no ar" via 100% delas como não atendida, e o
+     * número era falso sem estar errado em nenhuma linha específica.
+     *
+     * Rodar isto é autoridade, não inferência: o Asterisk só entrega o canal ao AGI
+     * depois de atender.
+     */
+    #[Test]
+    public function marca_o_atendimento_com_a_ligacao_ainda_aberta(): void
+    {
+        $id = $this->ligacao();
+
+        $this->banco()->marcarAtendida($id);
+
+        $l = (array) DB::table('ligacao')->where('id', $id)->first();
+        $this->assertNotNull($l['atendida_em'], 'a marca tem que estar lá durante a chamada');
+        $this->assertNull($l['encerrada_em'], 'e a Ligação continua aberta');
+    }
+
+    /**
+     * A marca é do PRIMEIRO atendimento e não se sobrescreve.
+     *
+     * `gravar()` já usava `COALESCE(atendida_em, :atendida_em)`, o que mostra que este
+     * era o desenho pretendido desde o começo — faltava quem escrevesse cedo. O
+     * `IS NULL` na condição é o outro lado da mesma garantia.
+     */
+    #[Test]
+    public function a_marca_nao_se_sobrescreve(): void
+    {
+        $id = $this->ligacao();
+        $banco = $this->banco();
+
+        $banco->marcarAtendida($id);
+        $primeira = DB::table('ligacao')->where('id', $id)->value('atendida_em');
+        // Sem esta linha o teste passaria com a marca NUNCA gravada: `null` é igual a
+        // `null`, e a asserção de "não sobrescreve" ficaria vazia. Descoberto quebrando
+        // `marcarAtendida` de propósito e vendo este teste continuar verde.
+        $this->assertNotNull($primeira);
+
+        $banco->marcarAtendida($id);
+
+        $this->assertSame($primeira, DB::table('ligacao')->where('id', $id)->value('atendida_em'));
+    }
+
+    /**
+     * E `gravar()` PRESERVA a marca da entrada.
+     *
+     * Se o `COALESCE` fosse invertido, a duração falada passaria a ser contada do
+     * desligamento até o desligamento — sempre zero — e ninguém notaria pela tela.
+     */
+    #[Test]
+    public function gravar_preserva_a_marca_feita_na_entrada(): void
+    {
+        $id = $this->ligacao();
+        $banco = $this->banco();
+
+        $banco->marcarAtendida($id);
+        $naEntrada = DB::table('ligacao')->where('id', $id)->value('atendida_em');
+        // Mesma armadilha do teste acima: sem isto, `null` preservado como `null` faria
+        // a asserção passar com a marca inexistente.
+        $this->assertNotNull($naEntrada);
+
+        $r = new Resultado();
+        $r->desfecho = 'sem_resposta';
+        $r->atendida = true;
+        $banco->gravar($id, $r);
+
+        $l = (array) DB::table('ligacao')->where('id', $id)->first();
+        $this->assertSame($naEntrada, $l['atendida_em']);
+        $this->assertNotNull($l['encerrada_em']);
+    }
+
     private function banco(): Banco
     {
         return new Banco([

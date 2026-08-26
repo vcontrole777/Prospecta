@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Livewire\CampanhaForm;
+use App\Livewire\AoVivo;
 use App\Livewire\Audios;
 use App\Livewire\Imagens;
 use App\Livewire\RespostasRapidas;
@@ -87,6 +88,7 @@ Route::middleware('guest')->group(function (): void {
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/', Campanhas::class)->name('campanhas');
+    Route::get('/ao-vivo', AoVivo::class)->name('ao-vivo');
 
     Route::get('/campanhas/nova', CampanhaForm::class)->name('campanha.nova');
     Route::get('/campanhas/{id}/editar', CampanhaForm::class)->name('campanha.editar');

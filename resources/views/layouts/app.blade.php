@@ -47,6 +47,7 @@
                 {{-- Três telas. A sidebar do <x-main> entra quando este cabeçalho
                      ficar apertado; até lá, link em linha é menos cromo. --}}
                 <a href="{{ route('campanhas') }}" class="rotulo hover:text-primary">Campanhas</a>
+                <a href="{{ route('ao-vivo') }}" class="rotulo hover:text-primary">Ao vivo</a>
                 <a href="{{ route('conversas') }}" class="rotulo hover:text-primary">Conversas</a>
                 <a href="{{ route('respostas-rapidas') }}" class="rotulo hover:text-primary">Respostas</a>
                 <a href="{{ route('audios') }}" class="rotulo hover:text-primary">Áudios</a>

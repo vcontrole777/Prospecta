@@ -174,6 +174,7 @@ final class Integracoes extends Component
             'emVigor' => $this->emVigor(),
             'consumidos' => self::CONSUMIDOS,
             'webhook' => $this->webhook(),
+            'webhookSms' => $this->webhookSms(),
         ]);
     }
 
@@ -208,6 +209,45 @@ final class Integracoes extends Component
             // A Meta RECUSA certificado autoassinado e não aceita HTTP. Numa instância sem
             // domínio isto nunca vai funcionar, e é melhor dizer aqui do que deixar o
             // operador tentando cadastrar e levando erro no painel dela.
+            'https' => str_starts_with($url, 'https://'),
+        ];
+    }
+
+    /**
+     * O que o operador precisa COLAR no painel do httpSMS.
+     *
+     * 🔴 MESMA METADE NÃO-AUTOMATIZÁVEL do webhook da Meta, com uma diferença que muda o
+     * que a tela precisa dizer: a Meta responde a um desafio de verificação e AVISA na hora
+     * se a URL está errada. O httpSMS não. Ele aceita o cadastro, começa a mandar evento, e
+     * se a chave não bater o nosso endpoint recusa TODO evento em silêncio — `Assinatura`
+     * falha FECHADA de propósito, porque a rota é pública.
+     *
+     * O sintoma disso é cruel: o SMS SAI normalmente, e só o status nunca volta. A Ação fica
+     * em `enviado` para sempre, e ninguém desconfia da chave. Por isso a tela avisa quando a
+     * `signing_key` está vazia — é a única forma de o operador saber ANTES.
+     *
+     * A chave NÃO aparece em claro, ao contrário do `verify_token` da Meta: aquele é um
+     * aperto de mão que não dá acesso a nada, esta é o que separa evento do httpSMS de
+     * evento forjado por qualquer um.
+     *
+     * @return array{url:string, chave:bool, https:bool}|null
+     */
+    private function webhookSms(): ?array
+    {
+        $emVigor = $this->emVigor();
+        $id = is_numeric($emVigor['sms'] ?? null) ? (int) $emVigor['sms'] : 0;
+
+        if ($id === 0) {
+            return null;
+        }
+
+        $url = url('/webhook/sms');
+
+        return [
+            'url' => $url,
+            'chave' => self::texto($this->credenciaisGuardadas($id)['signing_key'] ?? null) !== '',
+            // O httpSMS entrega por HTTPS; sem certificado válido o evento não chega e o
+            // status nunca volta — mesmo sintoma da chave errada, causa diferente.
             'https' => str_starts_with($url, 'https://'),
         ];
     }
