@@ -34,6 +34,8 @@ use App\Worker\Interrupcao;
 use App\Seguranca\Cofre;
 use App\Worker\PoliticaDeEnvio;
 use App\Worker\TransporteCurl;
+use App\Sms\Leitura as LeituraSms;
+use App\Worker\FilaDeEventosSms;
 use App\Worker\Sms;
 use App\Worker\Whatsapp;
 
@@ -50,6 +52,9 @@ $pdo = new PDO($conf['banco']['dsn'], $conf['banco']['usuario'], $conf['banco'][
 ]);
 
 $fila = new FilaDeAcoes($pdo, new Cofre($conf['app_key']));
+
+$eventosSms = new FilaDeEventosSms($pdo);
+$leituraSms = new LeituraSms();
 $eventos = new FilaDeEventos($pdo);
 $optOut = new OptOut();
 $politica = new PoliticaDeEnvio();
@@ -146,6 +151,53 @@ while (! $parada->pedida()) {
         $log->linha('eventos', 'eventos do webhook processados', [
             'quantos' => count($lote),
             'restam' => $eventos->pendentes(),
+        ]);
+    }
+
+    // ---- eventos do webhook de SMS ------------------------------------------
+    //
+    // Antes dos Disparos, como os do WhatsApp: um status que chegou muda o que a
+    // tela mostra, e processá-lo depois de uma volta inteira de envio atrasaria a
+    // informação sem ganho nenhum.
+    $loteSms = $eventosSms->proximos($conf['eventos_por_volta']);
+
+    foreach ($loteSms as $ev) {
+        $cloud = json_decode($ev['payload'], true);
+
+        if (is_array($cloud)) {
+            $status = $leituraSms->status($cloud);
+            if ($status !== null && $eventosSms->aplicar($status)) {
+                $log->linha('status_sms', 'estado de entrega aplicado', [
+                    'id' => $status->id,
+                    'status' => $status->status,
+                    'erro' => $status->erro,
+                ]);
+            }
+
+            /*
+             * 🔴 O APARELHO CAINDO É O REMETENTE MORRENDO, e sem isto a Campanha
+             * simplesmente para de mandar. No WhatsApp o remetente é a nuvem da
+             * Meta; aqui é um celular que descarrega, perde sinal ou é desligado por
+             * alguém. Uma linha no log é a diferença entre "o SMS parou" e "o SMS
+             * parou PORQUE o aparelho está fora".
+             */
+            $vivo = $leituraSms->heartbeat($cloud);
+            if ($vivo !== null) {
+                $log->linha(
+                    $vivo ? 'aparelho_online' : 'aparelho_offline',
+                    $vivo ? 'o celular do httpSMS voltou' : 'o celular do httpSMS está fora — o SMS não sai',
+                    [],
+                );
+            }
+        }
+
+        $eventosSms->marcarProcessado($ev['id']);
+    }
+
+    if ($loteSms !== []) {
+        $log->linha('eventos_sms', 'eventos do httpSMS processados', [
+            'quantos' => count($loteSms),
+            'restam' => $eventosSms->pendentes(),
         ]);
     }
 

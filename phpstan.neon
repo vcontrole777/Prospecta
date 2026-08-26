@@ -17,12 +17,14 @@ parameters:
         - app/Audio
         - app/Seguranca
         - app/Whatsapp
+        - app/Sms
         - app/Http
         - bin
         - tests/Unit/Dominio
         - tests/Unit/Fastagi
         - tests/Unit/Dialer
         - tests/Unit/Worker
+        - tests/Unit/Sms
         - tests/Unit/Importacao
         - tests/Unit/Audio
         - tests/Unit/Seguranca

@@ -14,6 +14,7 @@ use App\Livewire\Conversas;
 use App\Livewire\ImportarLista;
 use App\Http\Controllers\Gravacao;
 use App\Http\Controllers\Imagem;
+use App\Http\Controllers\WebhookSms;
 use App\Http\Controllers\WebhookWhatsapp;
 use App\Livewire\Integracoes;
 use App\Livewire\Resultados;
@@ -65,6 +66,17 @@ Route::post('/webhook/whatsapp', [WebhookWhatsapp::class, 'receber'])->name('web
 | fechadas; o risco aqui está nomeado e é aceito, porque a imagem vai para milhares
 | de desconhecidos no disparo de qualquer forma.
 */
+/*
+| 🔴 WEBHOOK DO SMS: PÚBLICO, pelo mesmo motivo do WhatsApp.
+|
+| Quem chama é o httpSMS. O que protege é o JWT no `Authorization`, verificado no
+| controller — ver `Sms\Assinatura`, que explica por que a garantia dele é mais
+| fraca que a do HMAC da Meta e o que fecha o resto.
+|
+| 5 segundos de timeout e reentrega em cima de 5XX: o controller guarda e sai.
+*/
+Route::post('/webhook/sms', WebhookSms::class)->name('webhook.sms');
+
 Route::get('/imagem/{token}', Imagem::class)
     ->where('token', '[a-f0-9]{32}')
     ->name('imagem');

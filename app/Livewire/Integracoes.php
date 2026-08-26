@@ -149,6 +149,11 @@ final class Integracoes extends Component
                     'segredo' => false,
                     'dica' => 'O chip do celular Android que roda o app do httpSMS — é ele que manda o SMS. Com país e DDD: 5511987654321.',
                 ],
+                'signing_key' => [
+                    'rotulo' => 'Chave de assinatura do webhook',
+                    'segredo' => true,
+                    'dica' => 'A MESMA que você põe ao criar o webhook no painel do httpSMS. Sem ela o endpoint recusa TODO evento — é a única proteção de uma rota pública. Opcional se você não usar webhook.',
+                ],
             ],
         ],
     ];
