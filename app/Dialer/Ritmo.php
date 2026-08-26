@@ -29,14 +29,42 @@ final class Ritmo
     ) {
     }
 
+    /**
+     * @param int $canaisContratados teto da CAMPANHA
+     * @param int $canaisOcupados em voo NESTA Campanha
+     * @param ?int $orcamentoDaInstancia quantas chamadas a INSTÂNCIA ainda aguenta
+     *        agora, somando todas as Campanhas. Nulo desliga o teto de instância.
+     *
+     * 🔴 O ORÇAMENTO DA INSTÂNCIA EXISTE PORQUE O TETO ERA POR CAMPANHA.
+     *
+     * `PROSPECTA_CANAIS` é chamado de "o contratado da INSTÂNCIA" no código, e não
+     * era: este método roda uma vez POR CAMPANHA, com os ocupados DAQUELA Campanha.
+     * Com três no ar e 100 contratados, o produto segurava até 300 canais do tronco
+     * sem ninguém ter pedido.
+     *
+     * Medido em 26/08/2026: com 60 contratados e duas Campanhas ativas, o pico
+     * observado foi 117 simultâneas; com 100 e três Campanhas, 170 — e o `503` da
+     * rota saltou de 0,66% para 8,95% enquanto o atendimento caía de 44,9% para
+     * 19,0%. O tronco recusando é o sintoma de um teto que não era teto.
+     */
     public function quantasOriginar(
         int $canaisContratados,
         int $canaisOcupados,
         int $leadsDisponiveis,
         float $intervaloSeg = 1.0,
+        ?int $orcamentoDaInstancia = null,
     ): int {
         $livres = max(0, $canaisContratados - $canaisOcupados);
         $quantas = min($livres, max(0, $leadsDisponiveis));
+
+        /*
+         * O orçamento entra como TETO, não como substituto do livre da Campanha: os
+         * dois valem ao mesmo tempo. Uma Campanha que pediu 20 simultâneas continua
+         * limitada a 20 mesmo com a instância inteira ociosa.
+         */
+        if ($orcamentoDaInstancia !== null) {
+            $quantas = min($quantas, max(0, $orcamentoDaInstancia));
+        }
 
         if ($this->cpsMaximo > 0) {
             $tetoDaVolta = (int) floor($this->cpsMaximo * $intervaloSeg);
