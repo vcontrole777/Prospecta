@@ -60,6 +60,41 @@ final class Banco
         $this->pdo = null;
     }
 
+    /**
+     * FASE 1, primeiro passo: a chamada FOI atendida — o handler está rodando.
+     *
+     * 🔴 A COLUNA `atendida_em` EXISTIA E SÓ ERA ESCRITA NO DESLIGAMENTO.
+     *
+     * `gravar()` a preenche no mesmo UPDATE que preenche `encerrada_em`. Consequência
+     * que ninguém tinha olhado: enquanto a Ligação está ABERTA, `atendida_em` é NULL
+     * SEMPRE — não porque ninguém atendeu, mas porque a única escrita acontece no fim.
+     * Uma consulta de chamadas no ar via 100% delas como "não atendida", e o número
+     * era falso sem nunca estar errado numa linha específica.
+     *
+     * Rodar aqui é autoridade, não inferência: o Asterisk só entrega o canal ao AGI
+     * DEPOIS de atender. Se este código está executando, alguém atendeu.
+     *
+     * Custo: um UPDATE por chamada atendida — 8.194 no dia de 26/08/2026, ~0,1/s —
+     * numa conexão que a FASE 1 já abriu e que a FASE 2 vai soltar de qualquer jeito.
+     *
+     * `COALESCE` no `gravar()` já preservava um valor anterior, o que mostra que este
+     * era o desenho pretendido desde o começo; faltava quem escrevesse cedo.
+     *
+     * De brinde, fecha uma corrida REAL: `Dialer\Fila::foiAtendida()` é a rede de
+     * segurança do sinal do AMI e lê justamente esta coluna. O docblock dela diz que
+     * "o fastagi grava no fim da chamada, e o Hangup pode chegar antes" — com a marca
+     * na entrada, a rede de segurança passa a estar armada durante a chamada inteira.
+     */
+    public function marcarAtendida(int $ligacaoId): void
+    {
+        // `IS NULL` na condição para não reescrever em retentativa do handler, e para
+        // o timestamp ser o do PRIMEIRO atendimento.
+        $st = $this->pdo()->prepare(
+            'UPDATE ligacao SET atendida_em = NOW() WHERE id = :id AND atendida_em IS NULL'
+        );
+        $st->execute(['id' => $ligacaoId]);
+    }
+
     /** FASE 1: lê tudo de uma vez. */
     public function carregar(int $ligacaoId, string $gravacaoDir, string $audioDir): Dados
     {

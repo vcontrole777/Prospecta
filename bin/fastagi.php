@@ -58,6 +58,10 @@ $resultado = new Resultado();
 
 try {
     // ---- FASE 1 ----
+    // A marca de atendimento vem ANTES da leitura: se `carregar` falhar, o fato de a
+    // chamada ter sido atendida continua verdadeiro e já está gravado. Ver
+    // `Banco::marcarAtendida` — a coluna só era escrita no desligamento.
+    $banco->marcarAtendida($ligacaoId);
     $dados = $banco->carregar($ligacaoId, $conf['gravacao_dir'], $conf['audio_dir']);
 
     // ---- FASE 2 ----
