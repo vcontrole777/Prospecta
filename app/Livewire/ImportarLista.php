@@ -106,10 +106,17 @@ final class ImportarLista extends Component
             // `mimes:csv,txt` sozinho recusa CSV legítimo, porque o tipo detectado
             // para CSV varia entre text/plain, text/csv e application/csv conforme
             // o sistema de quem enviou. `extensions` é o que o operador controla.
-            'arquivo' => ['required', 'file', 'max:51200', 'extensions:csv,txt'],
+            //
+            // 🔴 ESTE É O MENOR LIMITE DA PILHA, DE PROPÓSITO. É o único que sabe
+            // dizer ao operador o que houve; os limites de infraestrutura recusam
+            // antes e recusam mudos — o PHP descarta o arquivo com
+            // UPLOAD_ERR_INI_SIZE e o Laravel não vê nada. Por isso o php.ini
+            // (105 MB), o post_max_size (110 MB) e o nginx (110 MB) ficam ACIMA
+            // dos 100 MB daqui. Ver templates/php-prospecta.ini.j2.
+            'arquivo' => ['required', 'file', 'max:102400', 'extensions:csv,txt'],
         ], [
             'arquivo.extensions' => 'Envie um arquivo .csv. Planilha do Excel precisa ser salva como CSV antes.',
-            'arquivo.max' => 'O arquivo passa de 50 MB. Divida a lista em partes.',
+            'arquivo.max' => 'O arquivo passa de 100 MB. Divida a lista em partes.',
         ]);
 
         // `getRealPath()` é tipado como `string` no TemporaryUploadedFile, então só

@@ -1,0 +1,44 @@
+; {{ ansible_managed }}
+;
+; Só o SAPI fpm. O CLI tem o ini dele, e o dialer, o worker e o expurgo não
+; sobem arquivo nenhum — mudar o limite deles seria mudar o que não se mede.
+;
+; ------------------------------------------------------------------
+; 🔴 OS NÚMEROS TÊM UMA ESCADA, e a ordem é o que faz o operador ver a
+; mensagem certa em vez de uma falha genérica.
+;
+; O MENOR limite tem que ser o da aplicação, porque é o único que sabe dizer
+; "O arquivo passa de 100 MB. Divida a lista em partes." Quando quem recusa é
+; o PHP, o arquivo é descartado com UPLOAD_ERR_INI_SIZE antes de o Laravel
+; ver qualquer coisa, e a tela mostra um erro de upload que não explica nada.
+; Acima de post_max_size é pior: o PHP joga fora o corpo INTEIRO da
+; requisição, o Livewire recebe um POST vazio e o sintoma vira erro de sessão.
+;
+;   aplicação         100 MB   app/Livewire/ImportarLista.php   <- este dispara
+;   Livewire          105 MB   config/livewire.php
+;   upload_max_...    105 MB   aqui
+;   post_max_size     110 MB   aqui — o corpo é o arquivo MAIS os campos
+;   client_max_body   110 MB   templates/nginx-prospecta.conf.j2
+;
+; O teto real antes disto era 2 MB, o padrão do pacote, enquanto a tela
+; prometia 50 MB. Uma lista de 20 mil Leads dá cerca de 1 MB e passava
+; raspando por baixo — foi por isso que ninguém tropeçou nele.
+; ------------------------------------------------------------------
+upload_max_filesize = 105M
+post_max_size = 110M
+
+; 🔴 DEPOIS DO BYTE, O TETO É TEMPO.
+;
+; A importação roda DENTRO da requisição: gerador em fluxo, lotes de 500
+; (ImportarLista.php). Com os 30 s do pacote, um arquivo grande morre no meio,
+; com parte dos Leads já gravada e nenhum resumo na tela — falha pior que a
+; recusa limpa que existia antes, porque deixa a Campanha em estado parcial.
+;
+; O conserto ESTRUTURAL é a importação sair da requisição e virar Ação do
+; worker. Até lá, 300 s é o que impede a falha no meio.
+max_execution_time = 300
+
+; Receber e parsear o corpo. O nginx bufferiza o upload em disco e entrega
+; rápido ao PHP, então na prática sobra — mas os 60 s do pacote ficam abaixo do
+; upload de quem tem link ruim, e o modo de falhar é o mesmo POST vazio.
+max_input_time = 300
