@@ -1,0 +1,58 @@
+---
+# Gera o .deb do Asterisk e publica como release.
+#
+# Manual e raro: o Asterisk é ARTEFATO, não compilação por cliente. Compilar uma
+# vez dá provisionamento em segundos, versão bit a bit idêntica em toda
+# instância — não "a mesma versão compilada N vezes" — e rollback trivial.
+#
+# 🔴 A VERSÃO VEM DE group_vars/all.yml, e não de um campo digitado aqui. É o
+# mesmo arquivo que o `install.sh` lê para saber qual release procurar: com dois
+# lugares para escrever o número, o instalador procuraria `asterisk-22.10.1`
+# enquanto o release publicado se chamaria outra coisa, e a falha só apareceria
+# na próxima instalação.
+name: asterisk-artefato
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compilar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ler a versão de group_vars
+        run: |
+          VERSAO="$(sed -n 's/^asterisk_versao: *"\([0-9.]*\)".*/\1/p' \
+            provisionamento/group_vars/all.yml)"
+          test -n "${VERSAO}"
+          echo "VERSAO=${VERSAO}" >> "${GITHUB_ENV}"
+
+      # ubuntu-24.04 e amd64: a MESMA distribuição e arquitetura das instâncias.
+      # O pacote declara Depends de libssl3, libjansson4 e libcurl4 — nomes de
+      # noble. Compilado em outra base, ele instala e o Asterisk não sobe.
+      - name: Compilar
+        run: sudo bash provisionamento/build-asterisk.sh "${VERSAO}"
+
+      # O `.deb` do Asterisk é o único artefato do produto que dá para conferir
+      # antes de publicar: se `app_amd` não entrou no pacote, o classificador
+      # pós-atendimento não existe e toda caixa postal vira Lead atendido.
+      - name: Conferir que app_amd está dentro
+        run: |
+          dpkg-deb -c "/tmp/asterisk_${VERSAO}_amd64.deb" | grep -q 'app_amd\.so'
+          dpkg-deb -c "/tmp/asterisk_${VERSAO}_amd64.deb" | grep -q 'asterisk\.service'
+
+      - name: Publicar no release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "asterisk-${VERSAO}" \
+            --title "Asterisk ${VERSAO}" \
+            --notes "Pacote gerado por provisionamento/build-asterisk.sh. Instalado pelo install.sh." \
+            "/tmp/asterisk_${VERSAO}_amd64.deb" \
+          || gh release upload "asterisk-${VERSAO}" \
+            "/tmp/asterisk_${VERSAO}_amd64.deb" --clobber

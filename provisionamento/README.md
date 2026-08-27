@@ -50,15 +50,72 @@ group_vars/all.yml        versões e padrões, iguais em toda instância
 host_vars/exemplo.yml     por cliente: domínio, canais, credenciais do tronco
 templates/                unidades do systemd, pjsip, nginx
 build-asterisk.sh         roda UMA vez, gera o artefato
+install.sh                instalação em um comando, na própria VPS
 ```
 
-## Uso
+## Uso, a partir da máquina de controle
 
 ```bash
 cp inventario.exemplo.yml inventario.yml
 cp host_vars/exemplo.yml host_vars/cliente-x.yml   # edite
 ansible-playbook -i inventario.yml site.yml
 ```
+
+## Uso, em um comando, na própria VPS
+
+Numa Ubuntu 24.04 nua, como root. O repositório é privado, então não existe
+`raw.githubusercontent.com` que funcione sem autenticação — o próprio script vem
+pela API:
+
+```bash
+T=ghp_...
+curl -fsSL -H "Authorization: Bearer $T" -H "Accept: application/vnd.github.raw" \
+  https://api.github.com/repos/vcontrole777/Prospecta/contents/provisionamento/install.sh \
+  -o install.sh
+PROSPECTA_TOKEN=$T bash install.sh
+```
+
+**O `install.sh` não instala nada.** Quem instala é o `site.yml` — o mesmo de
+cima, rodando contra `localhost`. O script existe só para o que o playbook não
+consegue fazer sozinho numa máquina nua:
+
+1. baixar o código, que está num repositório privado (daí o token) e o `.deb` do Asterisk
+2. responder as sete variáveis de `host_vars` sem um humano editando YAML — gera
+   `banco_senha`, `ami_segredo` e a `APP_KEY`, e grava tudo em `/etc/prospecta/instancia.yml`
+3. criar o operador do painel, sem o qual ninguém entra, e imprimir a credencial no fim
+
+Atualizar é o mesmo comando com `--atualizar`: relê `/etc/prospecta/instancia.yml`,
+baixa o release novo e reexecuta o playbook. Continua valendo que instalar e
+atualizar são o mesmo mecanismo — o instalador é uma porta de entrada, não um
+segundo caminho.
+
+### 🔴 `/etc/prospecta/instancia.yml` entra no backup
+
+É a única cópia da `APP_KEY` daquela instância. Sem ela, todo valor cifrado no
+banco fica ilegível — a senha da Rota entre eles — e não há recuperação: a
+instância precisa ser reconfigurada do zero.
+
+### O que precisa estar publicado antes
+
+| Release | Gerado por | Contém |
+|---|---|---|
+| `v*` | workflow `release` | `prospecta-<tag>.tar.gz`: o código com `public/build` já construído |
+| `asterisk-<versão>` | workflow `asterisk-artefato` | `asterisk_<versão>_amd64.deb` |
+
+Os assets vêm prontos porque `node` não é instalado na VPS de propósito. O `.deb`
+é publicado uma vez por versão do Asterisk, e o número sai de
+`group_vars/all.yml` — o mesmo lugar de onde o `install.sh` lê para saber qual
+release procurar, para que não existam dois números que possam divergir.
+
+O `install.sh` **pré-instala** o `.deb` em vez de deixar o playbook baixá-lo: o
+`get_url` não manda cabeçalho de autenticação e o release é privado. Com o
+pacote já instalado, a tarefa do playbook sai pulada — que é o que a guarda
+`asterisk -V` sempre fez.
+
+E ele passa `-e operador_criado_depois=true`, que desarma o portão de operador
+do `site.yml`. O portão continua armado para qualquer outro chamador: sem ele,
+uma instalação nova morreria antes do nginx, das unidades e do certificado, por
+um operador que o próprio instalador ia criar no passo seguinte.
 
 ## Asterisk é artefato, não compilação por cliente
 

@@ -672,7 +672,15 @@
               sudo -u {{ app_usuario }} php{{ php_versao }} {{ app_dir }}/artisan
               prospecta:operador seu@email.com
               A senha é pedida sem eco; mínimo de 12 caracteres.
-          when: operadores.stdout | trim | int == 0
+          # `operador_criado_depois` é o desarme do portão, e existe para UM chamador:
+          # o `install.sh`, que cria o operador no passo seguinte ao playbook. Sem
+          # isso a instalação em um comando morreria aqui — antes do nginx, das
+          # unidades e do certificado — por um operador que ela mesma ia criar.
+          # No fluxo normal, a partir da máquina de controle, ninguém define a
+          # variável e o portão continua armado.
+          when:
+            - operadores.stdout | trim | int == 0
+            - not (operador_criado_depois | default(false) | bool)
 
     # ------------------------------------------------------------------
     - name: Unidades do Prospecta
