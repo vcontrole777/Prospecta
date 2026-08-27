@@ -14,6 +14,18 @@ server {
     # sabe dizer "divida a lista em partes". Ver templates/php-prospecta.ini.j2.
     client_max_body_size 110M;
 
+    # 🔴 ESTAVAM SÓ NA MÁQUINA, E O TEMPLATE AS APAGARIA.
+    #
+    # Achadas na conf viva de disk.empresax.icu ao aplicar o limite de 100 MB: o
+    # arquivo lá tinha estas duas rotas e este template não. Quem reexecutasse o
+    # playbook as removeria em silêncio — e o sintoma seria a Meta reprovando a
+    # revisão do aplicativo por não alcançar a política de privacidade, dias
+    # depois, sem ligação nenhuma com o provisionamento.
+    #
+    # Públicas e estáticas de propósito: a revisão da Meta acontece sem login.
+    location = /privacidade { rewrite ^ /legal/privacidade.html last; }
+    location = /termos      { rewrite ^ /legal/termos.html last; }
+
     location / {
         try_files $uri $uri/ /index.php?$query_string;
     }
