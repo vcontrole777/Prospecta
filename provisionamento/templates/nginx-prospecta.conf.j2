@@ -9,7 +9,22 @@ server {
     index index.php;
 
     charset utf-8;
-    client_max_body_size 32M;   # importação de lista em CSV
+    # Importação de lista em CSV. 110M e não 100M: o corpo é o arquivo MAIS os
+    # campos do formulário, e o limite que deve recusar é o da aplicação — só ele
+    # sabe dizer "divida a lista em partes". Ver templates/php-prospecta.ini.j2.
+    client_max_body_size 110M;
+
+    # 🔴 ESTAVAM SÓ NA MÁQUINA, E O TEMPLATE AS APAGARIA.
+    #
+    # Achadas na conf viva de disk.empresax.icu ao aplicar o limite de 100 MB: o
+    # arquivo lá tinha estas duas rotas e este template não. Quem reexecutasse o
+    # playbook as removeria em silêncio — e o sintoma seria a Meta reprovando a
+    # revisão do aplicativo por não alcançar a política de privacidade, dias
+    # depois, sem ligação nenhuma com o provisionamento.
+    #
+    # Públicas e estáticas de propósito: a revisão da Meta acontece sem login.
+    location = /privacidade { rewrite ^ /legal/privacidade.html last; }
+    location = /termos      { rewrite ^ /legal/termos.html last; }
 
     location / {
         try_files $uri $uri/ /index.php?$query_string;
@@ -33,6 +48,20 @@ server {
         fastcgi_pass unix:/run/php/php{{ php_versao }}-fpm.sock;
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         fastcgi_param DOCUMENT_ROOT $realpath_root;
+
+        # A importação de lista roda dentro da requisição e agora aceita 100 MB de
+        # CSV. Com o padrão de 60s o nginx devolveria 504 no meio dela, com Leads já
+        # gravados — e o operador não teria como saber quantos. Casa com o
+        # max_execution_time de 300 do fpm.
+        #
+        # 🔴 ISTO VALE PARA TODO PHP, o webhook do WhatsApp incluído — e ali o
+        # `fastcgi_read_timeout 10s` da location acima NUNCA foi aplicado: o
+        # `try_files` faz redirecionamento interno para /index.php, o nginx refaz a
+        # escolha de location e cai AQUI, onde as diretivas de lá não existem. O
+        # webhook vinha rodando com os 60s do padrão, não com 10s. Fazer aquele
+        # limite valer exige dar ao webhook o próprio fastcgi_pass — mudança de
+        # roteamento, separada desta.
+        fastcgi_read_timeout 300s;
     }
 
     location ~ /\.(?!well-known).* {

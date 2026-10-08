@@ -85,6 +85,19 @@
             name: "{{ php_extensoes | map('regex_replace', '^', 'php' + php_versao + '-') | list }}"
             state: present
 
+        # Arquivo à parte em `conf.d`, e não edição do `php.ini` do pacote: o
+        # `php.ini` é conffile do apt, e mexer nele faz toda atualização do PHP
+        # perguntar o que fazer com o arquivo modificado — numa máquina que
+        # ninguém está olhando, a atualização trava ou reverte o valor em
+        # silêncio. O diretório é varrido em ordem alfabética, então o `99-`
+        # entra por último e vence.
+        - name: Limites de upload e de tempo do fpm
+          ansible.builtin.template:
+            src: templates/php-prospecta.ini.j2
+            dest: "/etc/php/{{ php_versao }}/fpm/conf.d/99-prospecta.ini"
+            mode: "0644"
+          notify: Reiniciar o php-fpm
+
     # ------------------------------------------------------------------
     # O Ubuntu 24.04 empacota MySQL 8.0, que saiu de suporte upstream.
     # 8.4 vem do repositório da Oracle.
