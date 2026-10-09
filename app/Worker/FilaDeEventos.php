@@ -145,10 +145,14 @@ final class FilaDeEventos
      */
     public function registrarEntrada(Entrada $e): string
     {
-        // A Meta manda só dígitos com país, que já é o nosso canônico. Normalizar de
-        // todo jeito: se um dia vier com `+` ou com nono dígito ausente, a Conversa
-        // não pode virar uma linha nova em paralelo à que já existe.
-        $canonico = $this->telefone->tentar($e->de) ?? preg_replace('/\D/', '', $e->de) ?? '';
+        // 🔴 `tentarWaId`, NÃO `tentar`. A Meta manda celular antigo SEM o nono dígito
+        // (12 dígitos), e `tentar` recusa esse formato — caía no fallback cru, a resposta
+        // abria uma Conversa órfã em paralelo à do Disparo, e o opt-out ia para o
+        // `bloqueio` com 12 dígitos, que o dialer nunca casa com o Lead de 13.
+        //
+        // O fallback cru continua para quem não é número brasileiro: a Conversa vale
+        // mesmo assim, e não há Lead para casar.
+        $canonico = $this->telefone->tentarWaId($e->de) ?? preg_replace('/\D/', '', $e->de) ?? '';
         if ($canonico === '') {
             return '';
         }

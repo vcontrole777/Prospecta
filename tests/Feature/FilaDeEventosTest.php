@@ -255,7 +255,42 @@ final class FilaDeEventosTest extends TestCase
         $this->assertSame(2, DB::table('conversa_mensagem')->count());
     }
 
+    /**
+     * 🔴 A Meta manda celular antigo SEM o nono dígito. Em produção eram 463 de 480
+     * entradas. A resposta tem que cair na MESMA Conversa do Disparo (13 dígitos) e
+     * vincular o Lead — antes caía numa Conversa órfã de 12 dígitos, e a janela de 24
+     * horas da Conversa do Disparo nunca abria.
+     */
+    #[Test]
+    public function wa_id_sem_o_nono_digito_cai_na_conversa_do_lead(): void
+    {
+        $campanha = (int) DB::table('campanha')->insertGetId(['nome' => 'C', 'tipo' => 'opt_in', 'status' => 1]);
+        $lead = (int) DB::table('leads')->insertGetId([
+            'campanha_id' => $campanha, 'telefone' => '5511987654321', 'status' => 3,
+        ]);
+
+        $canonico = $this->fila->registrarEntrada(new Entrada('wamid.E1', '551187654321', 'text', 'oi'));
+
+        $this->assertSame('5511987654321', $canonico);
+        $this->assertSame(1, DB::table('conversa')->count());
+        $this->assertSame($lead, (int) DB::table('conversa')->value('lead_id'));
+    }
+
     // ------------------------------------------------------------------- opt-out
+
+    /**
+     * 🔴 O "PARAR" de quem tem celular antigo tem que impedir a discagem do Lead de 13
+     * dígitos. Antes o `bloqueio` recebia os 12 dígitos crus, e o dialer — que compara
+     * por igualdade — seguia discando.
+     */
+    #[Test]
+    public function opt_out_de_wa_id_sem_o_nono_digito_bloqueia_o_lead(): void
+    {
+        $telefone = $this->fila->registrarEntrada(new Entrada('wamid.E1', '551187654321', 'text', 'PARAR'));
+        $this->fila->bloquear($telefone);
+
+        $this->assertTrue((new Fila(DB::connection()->getPdo()))->bloqueado('5511987654321'));
+    }
 
     /** O que o "SAIR" promete não é a linha em `bloqueio`: é a próxima chamada não sair. */
     #[Test]
