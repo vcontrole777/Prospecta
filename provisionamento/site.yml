@@ -136,6 +136,21 @@
             name: mysql-server
             state: present
 
+        # 🔴 O pacote da Oracle escuta em TODAS as interfaces — 3306 e o X Protocol em
+        # 33060 — e a VPS não tem firewall por padrão. Medido em 03/11/2026: as duas
+        # portas abertas para a internet. O usuário do banco é `@localhost`, mas porta
+        # exposta é superfície de ataque mesmo assim. O banco só é usado daqui.
+        - name: MySQL só na interface local
+          ansible.builtin.copy:
+            dest: /etc/mysql/mysql.conf.d/99-prospecta.cnf
+            content: |
+              # Gerado pelo playbook do Prospecta.
+              [mysqld]
+              bind-address = 127.0.0.1
+              mysqlx-bind-address = 127.0.0.1
+            mode: "0644"
+          notify: Reiniciar o MySQL
+
         - name: MySQL habilitado
           ansible.builtin.systemd:
             name: mysql
@@ -774,6 +789,49 @@
           notify: Recarregar o nginx
 
     # ------------------------------------------------------------------
+    # Firewall: entra só SSH, HTTP/HTTPS, SIP e a faixa de RTP. O resto que o
+    # Asterisk abre por padrão (IAX 4569, DUNDi 4520) e o que não é desta máquina
+    # expor fica fechado.
+    #
+    # `command` e não o módulo `ufw`: ele vive em community.general, e esta
+    # instalação só tem ansible.builtin (ver `artefato_local` em group_vars).
+    #
+    # 🔴 O SSH É LIBERADO ANTES DO `enable`, e a ordem não é estética: ligar o ufw
+    # com `deny` de entrada sem a regra do SSH derruba a sessão que está rodando o
+    # playbook — e a próxima também.
+    - name: Firewall
+      tags: [firewall]
+      block:
+
+        - name: ufw instalado
+          ansible.builtin.apt:
+            name: ufw
+            state: present
+
+        - name: Regras de entrada
+          ansible.builtin.command:
+            cmd: "ufw allow {{ item }}"
+          register: regra_ufw
+          changed_when: "'Skipping' not in regra_ufw.stdout"
+          loop:
+            - "{{ ssh_porta }}/tcp"
+            - 80/tcp
+            - 443/tcp
+            - 5060/udp
+            - "{{ rtp_porta_inicio }}:{{ rtp_porta_fim }}/udp"
+
+        - name: Estado do firewall
+          ansible.builtin.command:
+            cmd: ufw status
+          register: ufw_estado
+          changed_when: false
+
+        - name: Firewall ligado, negando entrada por padrão
+          ansible.builtin.command:
+            cmd: ufw --force enable
+          when: "'Status: active' not in ufw_estado.stdout"
+
+    # ------------------------------------------------------------------
     # PRÉ-REQUISITO: o DNS de {{ dominio }} tem que resolver para o IP
     # desta máquina. A validação é por HTTP.
     #
@@ -865,6 +923,11 @@
       register: reinicio_servicos
       changed_when: reinicio_servicos.rc == 0
       failed_when: reinicio_servicos.rc not in [0, 5]
+
+    - name: Reiniciar o MySQL
+      ansible.builtin.systemd:
+        name: mysql
+        state: restarted
 
     - name: Reiniciar o php-fpm
       ansible.builtin.systemd:
