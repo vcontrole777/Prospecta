@@ -93,6 +93,10 @@ fastagi_porta: 4573
 fastagi_host: 127.0.0.1
 fastagi_max_conexoes: 512   # o PADRÃO do systemd é 64 — ver comentário na unidade
 
+# Porta do SSH liberada no firewall ANTES de ligá-lo. Se a VPS usar outra, troque em
+# host_vars — com o valor errado, o `ufw enable` tranca a máquina.
+ssh_porta: 22
+
 # Faixa de RTP. Dimensione para o número de canais contratados com folga.
 rtp_porta_inicio: 10000
 rtp_porta_fim: 20000

@@ -28,7 +28,9 @@ apt-get install -y --no-install-recommends \
 
 echo "==> Fonte"
 cd "${TRABALHO}"
-wget -q "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${VERSAO}.tar.gz"
+# `releases/` e não a raiz: a raiz só tem as versões CORRENTES, e a fonte some de lá
+# quando sai a seguinte — 22.10.1 deu 404 assim que a 22.11 foi publicada.
+wget -q "https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${VERSAO}.tar.gz"
 tar xzf "asterisk-${VERSAO}.tar.gz"
 cd "asterisk-${VERSAO}"
 
@@ -54,6 +56,10 @@ menuselect/menuselect \
   menuselect.makeopts
 
 echo "==> make"
+# 🔴 O pjproject embutido PRIMEIRO e SEM -j. Sob `make -j` a compilação dele tem
+# corrida: falhou duas vezes seguidas no Ubuntu 26.04 (GCC 15), cada vez numa
+# biblioteca diferente (libpjnath, depois libpjsua), e passou limpa em série.
+make third-party
 make -j"$(nproc)"
 
 echo "==> instalar em árvore de estágio"
@@ -113,7 +119,7 @@ Version: ${VERSAO}
 Section: comm
 Priority: optional
 Architecture: amd64
-Depends: libedit2, libjansson4, libsqlite3-0, libuuid1, libxml2, libssl3, libcurl4
+Depends: libedit2, libjansson4, libsqlite3-0, libuuid1, libxml2 | libxml2-16, libssl3, libcurl4
 Maintainer: Prospecta <ops@exemplo.com>
 Description: Asterisk ${VERSAO} para o Prospecta
  Compilado com app_amd, app_mixmonitor, app_waitforsilence e res_pjsip.

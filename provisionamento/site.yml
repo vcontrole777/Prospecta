@@ -22,32 +22,8 @@
             state: present
             update_cache: true
 
-        # 🔴 `groups: asterisk` — o painel e o expurgo precisam disso.
-        #
-        # Os diretórios de áudio e de gravação são do usuário `asterisk`, porque é
-        # ele que roda o PBX. Mas quem ESCREVE neles do outro lado é a aplicação: o
-        # painel instala o áudio enviado pelo operador, e o `bin/expurgo.php` apaga
-        # gravação vencida.
-        #
-        # Sem esta linha o expurgo não conseguia apagar NADA — rodava como
-        # `prospecta` contra um diretório `asterisk:asterisk` modo 0750, sem nem
-        # leitura. A gravação era retida para sempre e a coluna era limpa no banco,
-        # deixando disco e banco em desacordo — exatamente o que o dono único da
-        # operação existe para evitar. Verificado nesta máquina.
-        # 🔴 NOTIFICA REINÍCIO DO PHP-FPM, e é a metade que faltava.
-        #
-        # Grupo suplementar é fixado quando o processo COMEÇA. Numa instância nova isto
-        # roda antes de o php-fpm existir e não há problema; numa reprovisionada — que é o
-        # caso desta VPS, porque a adesão ao grupo entrou num commit POSTERIOR ao deploy —
-        # o usuário ganha o grupo e os workers em execução seguem sem ele.
-        #
-        # O sintoma não sugere permissão: a tela de Resultados diria "não está no disco"
-        # em TODA gravação, acusando o Asterisk de um problema de configuração nosso. A
-        # tela agora distingue "não existe" de "não consigo ver", mas distinguir o sintoma
-        # não é consertar a causa.
-        #
-        # Só dispara quando a tarefa muda, então reprovisionar sem alteração não reinicia
-        # nada.
+        # O grupo `asterisk` NÃO entra aqui — ver "Aplicação no grupo do Asterisk",
+        # logo depois de instalar o pacote.
         - name: Usuário da aplicação
           ansible.builtin.user:
             name: "{{ app_usuario }}"
@@ -55,9 +31,6 @@
             shell: /usr/sbin/nologin
             home: "{{ app_dir }}"
             create_home: false
-            groups: asterisk
-            append: true
-          notify: Reiniciar o php-fpm
 
         - name: Diretório de chaves de repositório
           ansible.builtin.file:
@@ -74,11 +47,15 @@
       tags: [php]
       block:
 
+        # O PPA só publica para as LTS que ele acompanha — `resolute` (26.04) devolve
+        # 404, e lá o PHP 8.5 já vem da distribuição. `php_ppa: false` em host_vars
+        # pula o repositório e usa o pacote nativo.
         - name: Repositório do PHP
           ansible.builtin.apt_repository:
             repo: "ppa:ondrej/php"
             state: present
             update_cache: true
+          when: php_ppa | default(true) | bool
 
         - name: Pacotes do PHP
           ansible.builtin.apt:
@@ -131,6 +108,21 @@
           ansible.builtin.apt:
             name: mysql-server
             state: present
+
+        # 🔴 O pacote da Oracle escuta em TODAS as interfaces — 3306 e o X Protocol em
+        # 33060 — e a VPS não tem firewall por padrão. Medido em 03/11/2026: as duas
+        # portas abertas para a internet. O usuário do banco é `@localhost`, mas porta
+        # exposta é superfície de ataque mesmo assim. O banco só é usado daqui.
+        - name: MySQL só na interface local
+          ansible.builtin.copy:
+            dest: /etc/mysql/mysql.conf.d/99-prospecta.cnf
+            content: |
+              # Gerado pelo playbook do Prospecta.
+              [mysqld]
+              bind-address = 127.0.0.1
+              mysqlx-bind-address = 127.0.0.1
+            mode: "0644"
+          notify: Reiniciar o MySQL
 
         - name: MySQL habilitado
           ansible.builtin.systemd:
@@ -203,6 +195,45 @@
             deb: "/tmp/asterisk_{{ asterisk_versao }}_amd64.deb"
             state: present
           when: asterisk_versao not in (asterisk_instalado.stdout | default(''))
+
+        # 🔴 DEPOIS de instalar o pacote, e não no bloco Base.
+        #
+        # O grupo `asterisk` é criado pelo `postinst` do .deb. No Base, numa máquina
+        # nova, o `user` falhava com grupo inexistente antes de qualquer outra coisa —
+        # o primeiro provisionamento só passava se alguém instalasse o .deb à mão antes.
+        #
+        # `groups: asterisk` — o painel e o expurgo precisam disso.
+        #
+        # Os diretórios de áudio e de gravação são do usuário `asterisk`, porque é
+        # ele que roda o PBX. Mas quem ESCREVE neles do outro lado é a aplicação: o
+        # painel instala o áudio enviado pelo operador, e o `bin/expurgo.php` apaga
+        # gravação vencida.
+        #
+        # Sem esta linha o expurgo não conseguia apagar NADA — rodava como
+        # `prospecta` contra um diretório `asterisk:asterisk` modo 0750, sem nem
+        # leitura. A gravação era retida para sempre e a coluna era limpa no banco,
+        # deixando disco e banco em desacordo — exatamente o que o dono único da
+        # operação existe para evitar. Verificado nesta máquina.
+        # 🔴 NOTIFICA REINÍCIO DO PHP-FPM, e é a metade que faltava.
+        #
+        # Grupo suplementar é fixado quando o processo COMEÇA. Numa instância nova isto
+        # roda antes de o php-fpm existir e não há problema; numa reprovisionada — que é o
+        # caso desta VPS, porque a adesão ao grupo entrou num commit POSTERIOR ao deploy —
+        # o usuário ganha o grupo e os workers em execução seguem sem ele.
+        #
+        # O sintoma não sugere permissão: a tela de Resultados diria "não está no disco"
+        # em TODA gravação, acusando o Asterisk de um problema de configuração nosso. A
+        # tela agora distingue "não existe" de "não consigo ver", mas distinguir o sintoma
+        # não é consertar a causa.
+        #
+        # Só dispara quando a tarefa muda, então reprovisionar sem alteração não reinicia
+        # nada.
+        - name: Aplicação no grupo do Asterisk
+          ansible.builtin.user:
+            name: "{{ app_usuario }}"
+            groups: asterisk
+            append: true
+          notify: Reiniciar o php-fpm
 
         # VERIFICADO POR FALHA: o logger.conf que vem de `make samples` NÃO
         # registra `verbose`, e é aí que o traço de `pjsip set logger`
@@ -704,7 +735,12 @@
             - prospecta-worker.service
             - prospecta-expurgo.service
             - prospecta-expurgo.timer
-          notify: Recarregar o systemd
+          # `daemon-reload` sozinho não basta: o processo em execução segue com a
+          # unidade antiga até reiniciar. A ordem dos handlers (systemd antes do
+          # reinício) é a da lista `handlers`, não a desta.
+          notify:
+            - Recarregar o systemd
+            - Reiniciar o dialer e o worker
 
         - name: Socket do FastAGI habilitado
           ansible.builtin.systemd:
@@ -749,11 +785,21 @@
       tags: [web]
       block:
 
+        # O 443 só entra no site quando o certificado JÁ EXISTE. Sem esta guarda, a
+        # primeira execução com domínio apontaria o nginx para um `fullchain.pem`
+        # que o bloco HTTPS ainda não emitiu, e o `nginx -t` do reload recusaria.
+        - name: Certificado já emitido
+          ansible.builtin.stat:
+            path: "/etc/letsencrypt/live/{{ dominio }}/fullchain.pem"
+          register: certificado_nginx
+
         - name: Site do nginx
           ansible.builtin.template:
             src: templates/nginx-prospecta.conf.j2
             dest: /etc/nginx/sites-available/prospecta
             mode: "0644"
+          vars:
+            nginx_https: "{{ (https_ativo | bool) and certificado_nginx.stat.exists }}"
           notify: Recarregar o nginx
 
         - name: Habilitar o site
@@ -770,6 +816,49 @@
           notify: Recarregar o nginx
 
     # ------------------------------------------------------------------
+    # Firewall: entra só SSH, HTTP/HTTPS, SIP e a faixa de RTP. O resto que o
+    # Asterisk abre por padrão (IAX 4569, DUNDi 4520) e o que não é desta máquina
+    # expor fica fechado.
+    #
+    # `command` e não o módulo `ufw`: ele vive em community.general, e esta
+    # instalação só tem ansible.builtin (ver `artefato_local` em group_vars).
+    #
+    # 🔴 O SSH É LIBERADO ANTES DO `enable`, e a ordem não é estética: ligar o ufw
+    # com `deny` de entrada sem a regra do SSH derruba a sessão que está rodando o
+    # playbook — e a próxima também.
+    - name: Firewall
+      tags: [firewall]
+      block:
+
+        - name: ufw instalado
+          ansible.builtin.apt:
+            name: ufw
+            state: present
+
+        - name: Regras de entrada
+          ansible.builtin.command:
+            cmd: "ufw allow {{ item }}"
+          register: regra_ufw
+          changed_when: "'Skipping' not in regra_ufw.stdout"
+          loop:
+            - "{{ ssh_porta }}/tcp"
+            - 80/tcp
+            - 443/tcp
+            - 5060/udp
+            - "{{ rtp_porta_inicio }}:{{ rtp_porta_fim }}/udp"
+
+        - name: Estado do firewall
+          ansible.builtin.command:
+            cmd: ufw status
+          register: ufw_estado
+          changed_when: false
+
+        - name: Firewall ligado, negando entrada por padrão
+          ansible.builtin.command:
+            cmd: ufw --force enable
+          when: "'Status: active' not in ufw_estado.stdout"
+
+    # ------------------------------------------------------------------
     # PRÉ-REQUISITO: o DNS de {{ dominio }} tem que resolver para o IP
     # desta máquina. A validação é por HTTP.
     #
@@ -780,6 +869,19 @@
     # Condicionado a `dominio` ser um NOME: o certbot RECUSA endereço IP, e com o
     # `creates:` abaixo a task falharia em toda execução do playbook numa instância
     # acessada por IP. Ver `https_ativo` em group_vars/all.yml.
+    #
+    # 🔴 `certonly --webroot`, e não `certbot --nginx`. O `--nginx` editava o site, e
+    # a reexecução seguinte do playbook reescrevia o arquivo e apagava o HTTPS — ver o
+    # cabeçalho de templates/nginx-prospecta.conf.j2. Aqui o certbot só emite; quem
+    # escreve o nginx é sempre o template.
+    #
+    # A validação vem por `public/.well-known/acme-challenge/`, servido pelo site em
+    # 80. Por isso o site precisa estar NO AR antes de emitir — o flush abaixo aplica o
+    # reload pendente do bloco web.
+    - name: Aplicar o site do nginx antes de emitir o certificado
+      tags: [https]
+      ansible.builtin.meta: flush_handlers
+
     - name: HTTPS
       tags: [https]
       when: https_ativo | bool
@@ -787,17 +889,35 @@
 
         - name: Certbot
           ansible.builtin.apt:
-            name:
-              - certbot
-              - python3-certbot-nginx
+            name: certbot
             state: present
 
+        # O `--deploy-hook` fica gravado na configuração de renovação: o
+        # `certbot.timer` renova sozinho e recarrega o nginx com o certificado novo.
         - name: Emitir o certificado
           ansible.builtin.command:
             cmd: >-
-              certbot --nginx --non-interactive --agree-tos
+              certbot certonly --webroot -w {{ app_dir }}/public
+              --non-interactive --agree-tos
               -m {{ email_certificado }} -d {{ dominio }}
+              --deploy-hook "systemctl reload nginx"
             creates: "/etc/letsencrypt/live/{{ dominio }}/fullchain.pem"
+
+        - name: Certificado emitido
+          ansible.builtin.stat:
+            path: "/etc/letsencrypt/live/{{ dominio }}/fullchain.pem"
+          register: certificado_nginx
+
+        # Mesma tarefa do bloco web, agora com o certificado no disco: na PRIMEIRA
+        # emissão é aqui que o 443 entra. Nas seguintes sai `ok`, sem mudança.
+        - name: Site do nginx com HTTPS
+          ansible.builtin.template:
+            src: templates/nginx-prospecta.conf.j2
+            dest: /etc/nginx/sites-available/prospecta
+            mode: "0644"
+          vars:
+            nginx_https: "{{ certificado_nginx.stat.exists }}"
+          notify: Recarregar o nginx
 
   handlers:
 
@@ -848,13 +968,24 @@
     #
     # Reiniciar DERRUBA chamada em curso. É o preço, e é o mesmo de qualquer implantação;
     # o momento barato é com a Campanha pausada.
+    #
+    # 🔴 `try-restart`, e não `state: restarted`. O `flush_handlers` antes do portão do
+    # operador dispara este handler ANTES do bloco "Unidades do Prospecta" — numa
+    # instância nova as unidades ainda não existem e o `systemd` falhava com "Could not
+    # find the requested service", derrubando o primeiro provisionamento. `try-restart`
+    # reinicia só o que está rodando; o que não existe (rc 5) ou está parado é subido
+    # logo depois pelo bloco das unidades, com `state: started`.
     - name: Reiniciar o dialer e o worker
+      ansible.builtin.command:
+        cmd: systemctl try-restart prospecta-dialer.service prospecta-worker.service
+      register: reinicio_servicos
+      changed_when: reinicio_servicos.rc == 0
+      failed_when: reinicio_servicos.rc not in [0, 5]
+
+    - name: Reiniciar o MySQL
       ansible.builtin.systemd:
-        name: "{{ item }}"
+        name: mysql
         state: restarted
-      loop:
-        - prospecta-dialer.service
-        - prospecta-worker.service
 
     - name: Reiniciar o php-fpm
       ansible.builtin.systemd:
