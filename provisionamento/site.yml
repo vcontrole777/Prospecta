@@ -22,32 +22,8 @@
             state: present
             update_cache: true
 
-        # 🔴 `groups: asterisk` — o painel e o expurgo precisam disso.
-        #
-        # Os diretórios de áudio e de gravação são do usuário `asterisk`, porque é
-        # ele que roda o PBX. Mas quem ESCREVE neles do outro lado é a aplicação: o
-        # painel instala o áudio enviado pelo operador, e o `bin/expurgo.php` apaga
-        # gravação vencida.
-        #
-        # Sem esta linha o expurgo não conseguia apagar NADA — rodava como
-        # `prospecta` contra um diretório `asterisk:asterisk` modo 0750, sem nem
-        # leitura. A gravação era retida para sempre e a coluna era limpa no banco,
-        # deixando disco e banco em desacordo — exatamente o que o dono único da
-        # operação existe para evitar. Verificado nesta máquina.
-        # 🔴 NOTIFICA REINÍCIO DO PHP-FPM, e é a metade que faltava.
-        #
-        # Grupo suplementar é fixado quando o processo COMEÇA. Numa instância nova isto
-        # roda antes de o php-fpm existir e não há problema; numa reprovisionada — que é o
-        # caso desta VPS, porque a adesão ao grupo entrou num commit POSTERIOR ao deploy —
-        # o usuário ganha o grupo e os workers em execução seguem sem ele.
-        #
-        # O sintoma não sugere permissão: a tela de Resultados diria "não está no disco"
-        # em TODA gravação, acusando o Asterisk de um problema de configuração nosso. A
-        # tela agora distingue "não existe" de "não consigo ver", mas distinguir o sintoma
-        # não é consertar a causa.
-        #
-        # Só dispara quando a tarefa muda, então reprovisionar sem alteração não reinicia
-        # nada.
+        # O grupo `asterisk` NÃO entra aqui — ver "Aplicação no grupo do Asterisk",
+        # logo depois de instalar o pacote.
         - name: Usuário da aplicação
           ansible.builtin.user:
             name: "{{ app_usuario }}"
@@ -55,9 +31,6 @@
             shell: /usr/sbin/nologin
             home: "{{ app_dir }}"
             create_home: false
-            groups: asterisk
-            append: true
-          notify: Reiniciar o php-fpm
 
         - name: Diretório de chaves de repositório
           ansible.builtin.file:
@@ -222,6 +195,45 @@
             deb: "/tmp/asterisk_{{ asterisk_versao }}_amd64.deb"
             state: present
           when: asterisk_versao not in (asterisk_instalado.stdout | default(''))
+
+        # 🔴 DEPOIS de instalar o pacote, e não no bloco Base.
+        #
+        # O grupo `asterisk` é criado pelo `postinst` do .deb. No Base, numa máquina
+        # nova, o `user` falhava com grupo inexistente antes de qualquer outra coisa —
+        # o primeiro provisionamento só passava se alguém instalasse o .deb à mão antes.
+        #
+        # `groups: asterisk` — o painel e o expurgo precisam disso.
+        #
+        # Os diretórios de áudio e de gravação são do usuário `asterisk`, porque é
+        # ele que roda o PBX. Mas quem ESCREVE neles do outro lado é a aplicação: o
+        # painel instala o áudio enviado pelo operador, e o `bin/expurgo.php` apaga
+        # gravação vencida.
+        #
+        # Sem esta linha o expurgo não conseguia apagar NADA — rodava como
+        # `prospecta` contra um diretório `asterisk:asterisk` modo 0750, sem nem
+        # leitura. A gravação era retida para sempre e a coluna era limpa no banco,
+        # deixando disco e banco em desacordo — exatamente o que o dono único da
+        # operação existe para evitar. Verificado nesta máquina.
+        # 🔴 NOTIFICA REINÍCIO DO PHP-FPM, e é a metade que faltava.
+        #
+        # Grupo suplementar é fixado quando o processo COMEÇA. Numa instância nova isto
+        # roda antes de o php-fpm existir e não há problema; numa reprovisionada — que é o
+        # caso desta VPS, porque a adesão ao grupo entrou num commit POSTERIOR ao deploy —
+        # o usuário ganha o grupo e os workers em execução seguem sem ele.
+        #
+        # O sintoma não sugere permissão: a tela de Resultados diria "não está no disco"
+        # em TODA gravação, acusando o Asterisk de um problema de configuração nosso. A
+        # tela agora distingue "não existe" de "não consigo ver", mas distinguir o sintoma
+        # não é consertar a causa.
+        #
+        # Só dispara quando a tarefa muda, então reprovisionar sem alteração não reinicia
+        # nada.
+        - name: Aplicação no grupo do Asterisk
+          ansible.builtin.user:
+            name: "{{ app_usuario }}"
+            groups: asterisk
+            append: true
+          notify: Reiniciar o php-fpm
 
         # VERIFICADO POR FALHA: o logger.conf que vem de `make samples` NÃO
         # registra `verbose`, e é aí que o traço de `pjsip set logger`
