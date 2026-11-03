@@ -735,7 +735,12 @@
             - prospecta-worker.service
             - prospecta-expurgo.service
             - prospecta-expurgo.timer
-          notify: Recarregar o systemd
+          # `daemon-reload` sozinho não basta: o processo em execução segue com a
+          # unidade antiga até reiniciar. A ordem dos handlers (systemd antes do
+          # reinício) é a da lista `handlers`, não a desta.
+          notify:
+            - Recarregar o systemd
+            - Reiniciar o dialer e o worker
 
         - name: Socket do FastAGI habilitado
           ansible.builtin.systemd:
