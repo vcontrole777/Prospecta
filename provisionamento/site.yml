@@ -74,11 +74,15 @@
       tags: [php]
       block:
 
+        # O PPA só publica para as LTS que ele acompanha — `resolute` (26.04) devolve
+        # 404, e lá o PHP 8.5 já vem da distribuição. `php_ppa: false` em host_vars
+        # pula o repositório e usa o pacote nativo.
         - name: Repositório do PHP
           ansible.builtin.apt_repository:
             repo: "ppa:ondrej/php"
             state: present
             update_cache: true
+          when: php_ppa | default(true) | bool
 
         - name: Pacotes do PHP
           ansible.builtin.apt:
@@ -848,13 +852,19 @@
     #
     # Reiniciar DERRUBA chamada em curso. É o preço, e é o mesmo de qualquer implantação;
     # o momento barato é com a Campanha pausada.
+    #
+    # 🔴 `try-restart`, e não `state: restarted`. O `flush_handlers` antes do portão do
+    # operador dispara este handler ANTES do bloco "Unidades do Prospecta" — numa
+    # instância nova as unidades ainda não existem e o `systemd` falhava com "Could not
+    # find the requested service", derrubando o primeiro provisionamento. `try-restart`
+    # reinicia só o que está rodando; o que não existe (rc 5) ou está parado é subido
+    # logo depois pelo bloco das unidades, com `state: started`.
     - name: Reiniciar o dialer e o worker
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: restarted
-      loop:
-        - prospecta-dialer.service
-        - prospecta-worker.service
+      ansible.builtin.command:
+        cmd: systemctl try-restart prospecta-dialer.service prospecta-worker.service
+      register: reinicio_servicos
+      changed_when: reinicio_servicos.rc == 0
+      failed_when: reinicio_servicos.rc not in [0, 5]
 
     - name: Reiniciar o php-fpm
       ansible.builtin.systemd:
