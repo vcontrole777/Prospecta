@@ -780,11 +780,21 @@
       tags: [web]
       block:
 
+        # O 443 só entra no site quando o certificado JÁ EXISTE. Sem esta guarda, a
+        # primeira execução com domínio apontaria o nginx para um `fullchain.pem`
+        # que o bloco HTTPS ainda não emitiu, e o `nginx -t` do reload recusaria.
+        - name: Certificado já emitido
+          ansible.builtin.stat:
+            path: "/etc/letsencrypt/live/{{ dominio }}/fullchain.pem"
+          register: certificado_nginx
+
         - name: Site do nginx
           ansible.builtin.template:
             src: templates/nginx-prospecta.conf.j2
             dest: /etc/nginx/sites-available/prospecta
             mode: "0644"
+          vars:
+            nginx_https: "{{ (https_ativo | bool) and certificado_nginx.stat.exists }}"
           notify: Recarregar o nginx
 
         - name: Habilitar o site
@@ -854,6 +864,19 @@
     # Condicionado a `dominio` ser um NOME: o certbot RECUSA endereço IP, e com o
     # `creates:` abaixo a task falharia em toda execução do playbook numa instância
     # acessada por IP. Ver `https_ativo` em group_vars/all.yml.
+    #
+    # 🔴 `certonly --webroot`, e não `certbot --nginx`. O `--nginx` editava o site, e
+    # a reexecução seguinte do playbook reescrevia o arquivo e apagava o HTTPS — ver o
+    # cabeçalho de templates/nginx-prospecta.conf.j2. Aqui o certbot só emite; quem
+    # escreve o nginx é sempre o template.
+    #
+    # A validação vem por `public/.well-known/acme-challenge/`, servido pelo site em
+    # 80. Por isso o site precisa estar NO AR antes de emitir — o flush abaixo aplica o
+    # reload pendente do bloco web.
+    - name: Aplicar o site do nginx antes de emitir o certificado
+      tags: [https]
+      ansible.builtin.meta: flush_handlers
+
     - name: HTTPS
       tags: [https]
       when: https_ativo | bool
@@ -861,17 +884,35 @@
 
         - name: Certbot
           ansible.builtin.apt:
-            name:
-              - certbot
-              - python3-certbot-nginx
+            name: certbot
             state: present
 
+        # O `--deploy-hook` fica gravado na configuração de renovação: o
+        # `certbot.timer` renova sozinho e recarrega o nginx com o certificado novo.
         - name: Emitir o certificado
           ansible.builtin.command:
             cmd: >-
-              certbot --nginx --non-interactive --agree-tos
+              certbot certonly --webroot -w {{ app_dir }}/public
+              --non-interactive --agree-tos
               -m {{ email_certificado }} -d {{ dominio }}
+              --deploy-hook "systemctl reload nginx"
             creates: "/etc/letsencrypt/live/{{ dominio }}/fullchain.pem"
+
+        - name: Certificado emitido
+          ansible.builtin.stat:
+            path: "/etc/letsencrypt/live/{{ dominio }}/fullchain.pem"
+          register: certificado_nginx
+
+        # Mesma tarefa do bloco web, agora com o certificado no disco: na PRIMEIRA
+        # emissão é aqui que o 443 entra. Nas seguintes sai `ok`, sem mudança.
+        - name: Site do nginx com HTTPS
+          ansible.builtin.template:
+            src: templates/nginx-prospecta.conf.j2
+            dest: /etc/nginx/sites-available/prospecta
+            mode: "0644"
+          vars:
+            nginx_https: "{{ certificado_nginx.stat.exists }}"
+          notify: Recarregar o nginx
 
   handlers:
 
