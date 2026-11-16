@@ -844,8 +844,31 @@
             - "{{ ssh_porta }}/tcp"
             - 80/tcp
             - 443/tcp
-            - 5060/udp
             - "{{ rtp_porta_inicio }}:{{ rtp_porta_fim }}/udp"
+
+        - name: SIP aberto a qualquer origem
+          ansible.builtin.command:
+            cmd: ufw allow 5060/udp
+          register: regra_sip
+          changed_when: "'Skipping' not in regra_sip.stdout"
+          when: sip_origens | length == 0
+
+        # 🔴 AS REGRAS POR ORIGEM ENTRAM ANTES de a regra aberta sair. Na ordem
+        # inversa, há um instante em que a operadora também fica de fora, e uma
+        # chamada em curso pode perder o BYE.
+        - name: SIP só das origens da operadora
+          ansible.builtin.command:
+            cmd: "ufw allow proto udp from {{ item }} to any port 5060"
+          register: regra_sip_origem
+          changed_when: "'Skipping' not in regra_sip_origem.stdout"
+          loop: "{{ sip_origens }}"
+
+        - name: Regra SIP aberta removida
+          ansible.builtin.command:
+            cmd: ufw delete allow 5060/udp
+          register: regra_sip_aberta
+          changed_when: "'non-existent' not in regra_sip_aberta.stdout"
+          when: sip_origens | length > 0
 
         - name: Estado do firewall
           ansible.builtin.command:
