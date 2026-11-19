@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Campanha\Reinicio;
 use App\Livewire\Campanhas;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
+use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\CriaAudio;
 use Tests\TestCase;
@@ -175,7 +177,7 @@ final class IniciarCampanhaTest extends TestCase
 
         DB::table('leads')->where('campanha_id', $id)->update(['try' => 3]);
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        $this->reiniciar($id);
 
         $this->assertSame(3, DB::table('leads')->where('campanha_id', $id)->where('status', 1)->count());
         $this->assertSame(0, DB::table('leads')->where('campanha_id', $id)->where('try', '>', 0)->count());
@@ -195,7 +197,7 @@ final class IniciarCampanhaTest extends TestCase
         $this->lead($id, 2);   // em voo
         $this->lead($id, 3);   // terminal
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        $this->reiniciar($id);
 
         $this->assertSame(1, DB::table('leads')->where('campanha_id', $id)->where('status', 2)->count());
         $this->assertSame(1, DB::table('leads')->where('campanha_id', $id)->where('status', 1)->count());
@@ -245,7 +247,7 @@ final class IniciarCampanhaTest extends TestCase
         // Nunca discado: também volta.
         $volta['sem_ligacao'] = $this->lead($id, 3);
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        $this->reiniciar($id);
 
         foreach ($fora as $desfecho => $leadId) {
             $this->assertSame(
@@ -283,7 +285,7 @@ final class IniciarCampanhaTest extends TestCase
 
         DB::table('bloqueio')->insert(['telefone' => $telefone, 'origem' => 'opt_out']);
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        $this->reiniciar($id);
 
         $this->assertSame(3, (int) DB::table('leads')->where('id', $lead)->value('status'));
     }
@@ -297,7 +299,7 @@ final class IniciarCampanhaTest extends TestCase
         $this->ligacaoCom($id, $lead, 'nao_atendeu');
         $this->ligacaoCom($id, $lead, 'maquina');
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        $this->reiniciar($id);
 
         $this->assertSame(0, DB::table('ligacao')->where('campanha_id', $id)->count());
 
@@ -322,7 +324,7 @@ final class IniciarCampanhaTest extends TestCase
         $leadVizinho = $this->lead($vizinha, 3);
         $this->ligacaoCom($vizinha, $leadVizinho, 'nao_atendeu');
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $alvo);
+        $this->reiniciar($alvo);
 
         $this->assertSame(1, DB::table('ligacao')->where('campanha_id', $vizinha)->count());
         $this->assertSame(3, (int) DB::table('leads')->where('id', $leadVizinho)->value('status'));
@@ -343,13 +345,13 @@ final class IniciarCampanhaTest extends TestCase
         $lead = $this->lead($id, 3);
         $this->ligacaoCom($id, $lead, 'opt_in');
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        $this->reiniciar($id);
 
         // Fora do ar de novo, como se o operador tivesse pausado para rodar mais uma vez.
         DB::table('campanha')->where('id', $id)->update(['status' => 2]);
         $this->assertSame(0, DB::table('ligacao')->where('campanha_id', $id)->count());
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        $this->reiniciar($id);
 
         $this->assertSame(
             3,
@@ -376,7 +378,7 @@ final class IniciarCampanhaTest extends TestCase
         $terminal = $this->lead($id, 3);
         $this->ligacaoCom($id, $terminal, 'nao_atendeu');
 
-        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        $this->reiniciar($id);
 
         $this->assertSame(1, DB::table('ligacao')->where('lead_id', $emVoo)->count());
         $this->assertSame(0, DB::table('ligacao')->where('lead_id', $terminal)->count());
@@ -398,8 +400,9 @@ final class IniciarCampanhaTest extends TestCase
             'tipo' => 'disparo', 'referencia_id' => $ligacao, 'status' => 'pendente',
         ]);
 
+        $this->reiniciar($id);
+
         Livewire::test(Campanhas::class)
-            ->call('reiniciar', $id)
             ->assertSee('1 disparo(s) de WhatsApp ainda pendentes');
 
         $this->assertSame(0, DB::table('acao')->where('referencia_id', $ligacao)->count());
@@ -423,7 +426,7 @@ final class IniciarCampanhaTest extends TestCase
         DB::table('ligacao')->where('id', $ligacao)->update(['gravacao' => $arquivo]);
 
         try {
-            Livewire::test(Campanhas::class)->call('reiniciar', $id);
+            $this->reiniciar($id);
 
             $this->assertFileDoesNotExist($arquivo);
             $this->assertSame(0, DB::table('ligacao')->where('id', $ligacao)->count());
@@ -452,13 +455,14 @@ final class IniciarCampanhaTest extends TestCase
         DB::table('ligacao')->where('id', $ligacao)->update(['gravacao' => '/etc/asterisk/pjsip.conf']);
 
         try {
+            $this->reiniciar($id);
+
             Livewire::test(Campanhas::class)
-                ->call('reiniciar', $id)
                 ->assertSee('foram MANTIDAS');
 
             $this->assertFileExists('/etc/asterisk/pjsip.conf');
             $this->assertSame(1, DB::table('ligacao')->where('id', $ligacao)->count());
-        } catch (\PHPUnit\Framework\AssertionFailedError $e) {
+        } catch (AssertionFailedError $e) {
             // Máquina sem Asterisk instalado: o que importa é que a linha ficou.
             $this->assertSame(1, DB::table('ligacao')->where('id', $ligacao)->count());
         } finally {
@@ -473,8 +477,9 @@ final class IniciarCampanhaTest extends TestCase
         $id = $this->campanha(['status' => 3]);
         $this->lead($id, 3);
 
+        $this->reiniciar($id);
+
         Livewire::test(Campanhas::class)
-            ->call('reiniciar', $id)
             ->assertSee('Campanha no ar');
 
         $this->assertSame(1, (int) DB::table('campanha')->where('id', $id)->value('status'));
@@ -492,8 +497,9 @@ final class IniciarCampanhaTest extends TestCase
         $id = $this->campanha(['status' => 3, 'audio_mensagem_id' => null]);
         $lead = $this->lead($id, 3);
 
+        $this->reiniciar($id);
+
         Livewire::test(Campanhas::class)
-            ->call('reiniciar', $id)
             ->assertSee('número(s) de volta na fila')
             ->assertSee('áudio da mensagem');
 
@@ -519,6 +525,118 @@ final class IniciarCampanhaTest extends TestCase
 
         $this->assertSame(1, DB::table('ligacao')->where('campanha_id', $id)->count());
         $this->assertSame(3, (int) DB::table('leads')->where('id', $lead)->value('status'));
+    }
+
+    /** O clique só marca: nada é apagado nem reposto dentro da requisição. */
+    #[Test]
+    public function reiniciar_no_painel_so_marca(): void
+    {
+        $id = $this->campanha(['status' => 3]);
+        $lead = $this->lead($id, 3);
+        $this->ligacaoCom($id, $lead, 'nao_atendeu');
+
+        Livewire::test(Campanhas::class)
+            ->call('reiniciar', $id)
+            ->assertSee('Reiniciando a Campanha')
+            ->assertSee('reiniciando…');
+
+        $this->assertNotNull(DB::table('campanha')->where('id', $id)->value('reiniciar_pedido_em'));
+        $this->assertSame(1, DB::table('ligacao')->where('campanha_id', $id)->count());
+        $this->assertSame(3, (int) DB::table('leads')->where('id', $lead)->value('status'));
+    }
+
+    /** Marcada para reiniciar, a Campanha não vai ao ar pelo botão nem pode ser apagada. */
+    #[Test]
+    public function campanha_reiniciando_nao_inicia_nem_e_apagada(): void
+    {
+        $id = $this->campanha(['status' => 2, 'reiniciar_pedido_em' => now()]);
+        $this->lead($id);
+
+        Livewire::test(Campanhas::class)
+            ->call('iniciar', $id)
+            ->assertSee('está sendo reiniciada');
+
+        Livewire::test(Campanhas::class)->call('apagar', $id);
+
+        $c = DB::table('campanha')->where('id', $id)->first();
+        $this->assertNotNull($c);
+        $this->assertSame(2, (int) $c->status);
+        $this->assertNull($c->apagar_pedido_em);
+    }
+
+    /** O fim do reinício tira a marca e deixa o recado na linha da Campanha. */
+    #[Test]
+    public function reinicio_tira_a_marca_e_deixa_o_recado(): void
+    {
+        $id = $this->campanha(['status' => 3]);
+        $this->lead($id, 3);
+
+        $this->reiniciar($id);
+
+        $c = DB::table('campanha')->where('id', $id)->first();
+        $this->assertNotNull($c);
+        $this->assertNull($c->reiniciar_pedido_em);
+        $this->assertStringContainsString('Campanha no ar', (string) $c->reiniciar_aviso);
+    }
+
+    /** O recado some quando o operador mexe na Campanha de novo. */
+    #[Test]
+    public function iniciar_e_pausar_apagam_o_recado_do_reinicio(): void
+    {
+        $id = $this->campanha(['status' => 2, 'reiniciar_aviso' => 'Não pus no ar: algo']);
+        $this->lead($id);
+
+        Livewire::test(Campanhas::class)->call('iniciar', $id);
+        $this->assertNull(DB::table('campanha')->where('id', $id)->value('reiniciar_aviso'));
+
+        DB::table('campanha')->where('id', $id)->update(['reiniciar_aviso' => 'recado velho']);
+        Livewire::test(Campanhas::class)->call('pausar', $id);
+        $this->assertNull(DB::table('campanha')->where('id', $id)->value('reiniciar_aviso'));
+    }
+
+    /**
+     * Mais de um lote de Ligações e de Leads. O cursor por id é o que impede o laço de
+     * parar no primeiro lote — e o que impede de girar para sempre sobre os já repostos.
+     */
+    #[Test]
+    public function reinicio_atravessa_mais_de_um_lote(): void
+    {
+        $id = $this->campanha(['status' => 2]);
+
+        $leads = [];
+        for ($i = 0; $i < 11000; $i++) {
+            $leads[] = ['campanha_id' => $id, 'telefone' => (string) (5511900000000 + $i), 'status' => 3, 'try' => 2];
+        }
+        foreach (array_chunk($leads, 1000) as $lote) {
+            DB::table('leads')->insert($lote);
+        }
+
+        $primeiro = (int) DB::table('leads')->where('campanha_id', $id)->min('id');
+        $ligacoes = [];
+        for ($i = 0; $i < 2500; $i++) {
+            $ligacoes[] = [
+                'lead_id' => $primeiro, 'campanha_id' => $id, 'numero_tentativa' => 1,
+                'iniciada_em' => now(), 'desfecho' => 'nao_atendeu',
+            ];
+        }
+        foreach (array_chunk($ligacoes, 500) as $lote) {
+            DB::table('ligacao')->insert($lote);
+        }
+
+        $this->reiniciar($id);
+
+        $this->assertSame(0, DB::table('ligacao')->where('campanha_id', $id)->count());
+        $this->assertSame(11000, DB::table('leads')->where('campanha_id', $id)->where('status', 1)->where('try', 0)->count());
+    }
+
+    /**
+     * O clique MARCA; quem reinicia é o `Reinicio`, que em produção roda a cada minuto pelo
+     * systemd. O teste faz os dois, nessa ordem.
+     */
+    private function reiniciar(int $id): void
+    {
+        Livewire::test(Campanhas::class)->call('reiniciar', $id);
+        (new Reinicio())->executar();
     }
 
     private function campanha(array $atributos = []): int

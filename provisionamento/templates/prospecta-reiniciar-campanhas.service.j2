@@ -1,0 +1,23 @@
+[Unit]
+Description=Prospecta — reinício de Campanhas marcadas no painel
+After=mysql.service
+Wants=mysql.service
+
+[Service]
+Type=oneshot
+
+# O painel só marca `campanha.reiniciar_pedido_em`; quem reinicia é este comando, em
+# lotes, porque uma Campanha grande não cabe nos 30 s de uma requisição. Ver
+# app/Campanha/Reinicio.php.
+WorkingDirectory={{ app_dir }}
+ExecStart=/usr/bin/php{{ php_versao }} {{ app_dir }}/artisan prospecta:campanhas-reiniciar
+
+User={{ app_usuario }}
+Group={{ app_usuario }}
+
+# Escreve no diretório de gravação (apaga as do histórico) e em storage/ (log do
+# Laravel). Mais nada.
+ProtectSystem=strict
+ReadWritePaths={{ gravacao_dir }} {{ app_dir }}/storage
+PrivateTmp=true
+NoNewPrivileges=true
