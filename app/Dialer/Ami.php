@@ -22,6 +22,23 @@ final class Ami
     private array $pendentes = [];
 
     /**
+     * 🔴 A CONEXÃO MORREU, e quem decide o que fazer é o chamador.
+     *
+     * Medido em produção em 13/11/2026: o Asterisk caiu com SIGSEGV às 17:12:21 e o
+     * systemd o subiu de novo em 5 s. Este objeto continuou segurando o socket do
+     * Asterisk ANTIGO. Todo `fwrite` passou a falhar com `errno=32 Broken pipe`, toda
+     * leitura devolvia vazio por EOF, e as duas coisas saíam daqui como "sem
+     * resposta" — indistinguível de uma recusa do Asterisk. O dialer registrou cada
+     * `Originate` como recusado, a `Protecao` pausou Campanha atrás de Campanha, e o
+     * heartbeat seguiu dizendo que estava tudo bem. Três dias sem discar.
+     *
+     * Por isso a perda é um ESTADO, e não um array vazio: vazio já significava
+     * "o Asterisk não respondeu", e o chamador precisa saber que dessa vez não foi o
+     * Asterisk, foi o cano. Uma vez perdida, não volta: este objeto não reconecta.
+     */
+    private bool $perdida = false;
+
+    /**
      * @param resource $entrada
      * @param resource $saida
      */
@@ -31,7 +48,25 @@ final class Ami
     ) {
     }
 
-    /** @return array<string,string> */
+    /**
+     * A conexão com o Asterisk acabou: escrita recusada pelo socket, ou EOF na
+     * leitura. Ver `$perdida`.
+     *
+     * Quem muda a resposta são os métodos que conversam com o socket, e por isso
+     * ELES levam `@phpstan-impure`. Sem a marca, o PHPStan lembra o `false` da
+     * verificação depois da drenagem de eventos, atravessa o `originar()` achando que
+     * nada mudou, e conclui que a verificação seguinte nunca dispara — que é
+     * exatamente o caso do incidente.
+     */
+    public function conexaoPerdida(): bool
+    {
+        return $this->perdida;
+    }
+
+    /**
+     * @phpstan-impure
+     * @return array<string,string>
+     */
     public function login(string $usuario, string $segredo): array
     {
         return $this->acao([
@@ -57,6 +92,7 @@ final class Ami
      * tem atendimento perto de zero — e a causa seria invisível, porque ninguém
      * investiga um campo em branco.
      *
+     * @phpstan-impure
      * @param array<string,string> $variaveis
      * @return array<string,string>
      */
@@ -96,6 +132,7 @@ final class Ami
     }
 
     /**
+     * @phpstan-impure
      * @param array<string,string> $campos
      * @return array<string,string>
      */
@@ -133,6 +170,7 @@ final class Ami
     /**
      * Próximo pacote: evento ou resposta. Array vazio no fim do fluxo.
      *
+     * @phpstan-impure
      * @return array<string,string>
      */
     public function ler(): array
@@ -166,15 +204,25 @@ final class Ami
     private function enviarLinhas(array $linhas): array
     {
         if (! is_resource($this->saida)) {
+            $this->perdida = true;
+
             return [];
         }
 
         $id = 'prospecta-' . ++$this->sequencia;
         $linhas[] = "ActionID: {$id}";
+        $bruto = implode("\r\n", $linhas) . "\r\n\r\n";
 
-        // Sem supressão de erro: o ADR-0007 proíbe, e `is_resource` diz o mesmo
-        // sem esconder nada.
-        if (fwrite($this->saida, implode("\r\n", $linhas) . "\r\n\r\n") === false) {
+        // Sem supressão de erro: o ADR-0007 proíbe. O `Broken pipe` continua indo
+        // para o log como warning; o que muda é que agora ele também vira ESTADO.
+        //
+        // 🔴 Escrita CURTA também é perda. Meia ação no fio deixa o protocolo
+        // dessincronizado — o resto da conversa seria lido fora de quadro — e num
+        // socket bloqueante isso só acontece com a outra ponta indo embora.
+        $escritos = fwrite($this->saida, $bruto);
+        if ($escritos === false || $escritos < strlen($bruto)) {
+            $this->perdida = true;
+
             return [];
         }
 
@@ -198,6 +246,8 @@ final class Ami
     private function lerDoFluxo(): array
     {
         if (! is_resource($this->entrada)) {
+            $this->perdida = true;
+
             return [];
         }
 
@@ -214,6 +264,14 @@ final class Ami
             if ($pos !== false) {
                 $pacote[substr($linha, 0, $pos)] = trim(substr($linha, $pos + 1));
             }
+        }
+
+        // 🔴 `fgets` falso tem DUAS causas, e só uma é perda. A outra é o timeout do
+        // socket (`default_socket_timeout`), com a conexão viva e só sem nada a dizer.
+        // `feof` separa as duas: é verdadeiro só quando a outra ponta FECHOU — que é
+        // o que um Asterisk reiniciado faz com o socket do processo anterior.
+        if (feof($this->entrada)) {
+            $this->perdida = true;
         }
 
         return $pacote;

@@ -60,6 +60,36 @@ if (($resp['Response'] ?? '') !== 'Success') {
 }
 $log->linha('ami', 'autenticado');
 
+/**
+ * 🔴 CONEXÃO AMI PERDIDA ENCERRA O PROCESSO, com código 1. Não reconecta.
+ *
+ * O incidente: em 13/11/2026 17:12:21 o Asterisk caiu com SIGSEGV e o systemd o
+ * reiniciou em 5 s. Este processo ficou com o socket do Asterisk antigo e passou TRÊS
+ * DIAS assim — todo `Originate` saía "recusado pelo Asterisk — sem resposta do AMI",
+ * a `Protecao` pausava as Campanhas, e o heartbeat seguia em dia, então nem o systemd
+ * nem o painel acusaram nada. Voltou a discar quando alguém reiniciou o serviço à mão.
+ *
+ * Reiniciar à mão é exatamente o que conserta, e por isso a saída é sair. A unidade
+ * já tem `Restart=always` com `RestartSec=5`, e a partida já sabe conectar,
+ * autenticar e falhar alto quando o Asterisk ainda não voltou ("AMI inacessível",
+ * código 1, de novo em 5 s). Esse é o backoff, e ele é o caminho que roda em TODO
+ * boot — não um segundo caminho de conexão que só executaria no dia do acidente.
+ *
+ * Reconectar aqui dentro pareceria mais elegante e seria pior: os mapas em memória
+ * (`$leadDaLigacao`, `$atendeuDaLigacao`, …) descrevem chamadas cujo `Hangup` nunca
+ * vai chegar — o Asterisk que as tinha morreu —, e seria preciso decidir à mão o que
+ * fazer com cada uma. Recomeçar do zero entrega isso para quem já sabe: a
+ * `reconciliar()` fecha as Ligações órfãs quando passam de `limite_ligacao_seg`.
+ *
+ * Também resolve o heartbeat sem código a mais: processo morto não bate.
+ */
+$encerrarPorAmiPerdido = static function (string $onde) use ($log): never {
+    $log->linha('erro_fatal', 'conexão com o AMI perdida; encerrando para o systemd reiniciar', [
+        'onde' => $onde,
+    ]);
+    exit(1);
+};
+
 $fila = new Fila($pdo);
 $politica = new Politica();
 $protecao = new Protecao();
@@ -288,6 +318,14 @@ while ($rodando) {
         );
     }
 
+    // 🔴 É AQUI que a queda do Asterisk aparece primeiro. Socket fechado pela outra
+    // ponta fica "legível" para o `stream_select`, a leitura dá EOF e o `Ami` marca a
+    // perda — mesmo fora do Horário de Trabalho, quando nada é originado. Sair antes
+    // do heartbeat é o que impede o painel de mostrar o dialer vivo e surdo.
+    if ($ami->conexaoPerdida()) {
+        $encerrarPorAmiPerdido('leitura de eventos');
+    }
+
     if ($lidos >= $conf['eventos_por_volta']) {
         $log->linha('eventos', 'teto da volta atingido; o resto fica para a próxima', ['lidos' => $lidos]);
     }
@@ -447,7 +485,10 @@ while ($rodando) {
 
         $espacamento = $ritmo->espacamentoMicro($quantas, $conf['intervalo_seg']);
 
-        foreach ($fila->reivindicar($campanhaId, $quantas) as $lead) {
+        // Lote em variável, e não direto no `foreach`: se o AMI cair no meio, o resto
+        // do lote já está reivindicado (status 2, tentativa somada) e precisa voltar.
+        $lote = $fila->reivindicar($campanhaId, $quantas);
+        foreach ($lote as $posicao => $lead) {
             // Lista de bloqueio verificada NA DISCAGEM: alguém pode entrar nela
             // depois de o arquivo ser importado.
             if ($fila->bloqueado($lead['telefone'])) {
@@ -478,6 +519,31 @@ while ($rodando) {
                 bina: $numero,
                 variaveis: ['LIGACAO' => (string) $ligacaoId],
             );
+
+            // 🔴 PERDA DO AMI NÃO É RECUSA, e é verificada ANTES dela.
+            //
+            // Foi este o ramo que errou em 13/11/2026: sem resposta por cano quebrado
+            // caía no bloco abaixo, virava `desfecho = 'erro'` e entrava na janela da
+            // `Protecao`, que pausou as Campanhas por um defeito que era NOSSO, não do
+            // tronco nem da conta. Pausar ainda deixava o estrago para depois do
+            // reinício: Campanha pausada não volta sozinha.
+            //
+            // A Ligação é fechada SEM desfecho (ADR-0007, regra 4: desfecho só quando é
+            // conhecido; e não sabemos se o Asterisk chegou a ler a ação antes de cair).
+            // `encerrada_em` preenchido tira a Ligação da `reconciliar()`, que a
+            // marcaria `erro` pelo COALESCE. O `hangup_cause` diz o que houve.
+            //
+            // Este Lead e os que sobraram do lote voltam sem gastar tentativa: nenhum
+            // deles foi discado por decisão do destino.
+            if ($ami->conexaoPerdida()) {
+                $pdo->prepare("UPDATE ligacao SET encerrada_em = NOW(), hangup_cause = 'AMI desconectado'
+                                WHERE id = :id AND encerrada_em IS NULL")
+                    ->execute(['id' => $ligacaoId]);
+                foreach (array_slice($lote, $posicao) as $naoDiscado) {
+                    $fila->devolverSemGastar($naoDiscado['id']);
+                }
+                $encerrarPorAmiPerdido('Originate');
+            }
 
             // 🔴 A RESPOSTA DO ORIGINATE É VERIFICADA. Encontrado em teste de
             // integração: com o contexto de dialplan ausente o Asterisk recusa
@@ -537,7 +603,11 @@ while ($rodando) {
         }
     }
 
-    // heartbeat: o painel usa para mostrar que o serviço está vivo
+    // heartbeat: o painel usa para mostrar que o serviço está vivo.
+    //
+    // 🔴 Só chega aqui com o AMI conectado: as duas verificações de `conexaoPerdida()`
+    // acima encerram o processo antes. Antes delas, o heartbeat de 13 a 16/11/2026
+    // atestava um dialer que não tinha como discar.
     $pdo->prepare("INSERT INTO heartbeat (processo, visto_em) VALUES ('dialer', NOW())
                    ON DUPLICATE KEY UPDATE visto_em = NOW()")->execute();
 
