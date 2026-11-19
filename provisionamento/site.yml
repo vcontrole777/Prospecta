@@ -484,6 +484,7 @@
               --exclude=./vendor
               --exclude=./.env
               --exclude=./tests
+              --exclude=./.phpunit.result.cache
               --exclude=./provisionamento
               --exclude=./bootstrap/cache
               --exclude=./storage/logs
@@ -507,45 +508,6 @@
             owner: "{{ app_usuario }}"
             group: "{{ app_usuario }}"
             mode: "0755"
-
-        # LIMITAÇÃO CONHECIDA: `unarchive` sobrepõe, não sincroniza — arquivo
-        # removido do repositório permanece na VPS. Para o v1 é aceitável porque
-        # nada no produto varre diretório em busca de código. Se isso mudar, este
-        # passo precisa apagar antes de extrair.
-        # 🔴 APAGA O CÓDIGO ANTIGO ANTES DE EXTRAIR.
-        #
-        # O comentário acima dizia que sobrepor bastava, "porque nada no produto varre
-        # diretório em busca de código — se isso mudar, este passo precisa apagar antes de
-        # extrair". Mudou, e sempre foi assim: o LARAVEL varre `config/` e carrega TODO
-        # arquivo de lá como configuração.
-        #
-        # Custou um deploy: `config/ambiente.php` foi movido para `bootstrap/` no
-        # repositório porque devolve uma closure e quebrava o `config:cache`. A cópia velha
-        # continuou em `/opt/prospecta/config/`, e o deploy seguiu falhando pelo arquivo que
-        # já não existia na origem — sintoma idêntico ao defeito já corrigido, o que é o
-        # pior tipo de pista falsa.
-        #
-        # Só diretórios que o artefato substitui INTEIROS. Ficam de fora, e cada um por um
-        # motivo: `storage/` e `bootstrap/cache` são estado; `vendor/` é reconstruído pelo
-        # composer logo abaixo e apagá-lo custaria minutos a cada deploy; `.env` é
-        # configuração da instância e é escrito por outra tarefa.
-        #
-        # O artefato JÁ FOI MONTADO quando isto roda — a tarefa anterior é "Montar o
-        # artefato". Então não há janela em que o código esteja apagado e não haja o que
-        # extrair.
-        - name: Limpar o código anterior
-          ansible.builtin.file:
-            path: "{{ app_dir }}/{{ item }}"
-            state: absent
-          loop: [app, bootstrap, config, database, public, resources, routes, bin]
-
-        - name: Enviar e extrair o código
-          ansible.builtin.unarchive:
-            src: "{{ artefato_local }}"
-            dest: "{{ app_dir }}"
-            owner: "{{ app_usuario }}"
-            group: "{{ app_usuario }}"
-          notify: Reiniciar o dialer e o worker
 
         # 🔴 ANTES do composer, e a ordem é o conserto de uma falha real.
         #
@@ -579,18 +541,6 @@
           ansible.builtin.apt:
             name: composer
             state: present
-
-        # Roda como root e o dono é corrigido depois. `become_user` para uma conta
-        # com shell nologin é mais superfície de falha do que o chown resolve.
-        - name: Dependências de produção
-          ansible.builtin.command:
-            chdir: "{{ app_dir }}"
-            cmd: >-
-              composer install --no-dev --optimize-autoloader
-              --no-interaction --no-progress
-          environment:
-            COMPOSER_ALLOW_SUPERUSER: "1"
-          changed_when: true
 
         # 🔴 O php-fpm passa a rodar como a conta da aplicação.
         #
@@ -637,6 +587,116 @@
             - Reiniciar o dialer e o worker
             - Reiniciar o php-fpm
 
+        # 🔴 O CÓDIGO NOVO É MONTADO AO LADO, E O BANCO MIGRA ANTES DA TROCA.
+        #
+        # A ordem antiga era: apagar o código, extrair o novo, rodar o composer, e só então
+        # migrar. Entre extrair e migrar passavam dezenas de segundos com código novo
+        # consultando colunas que ainda não existiam. Medido nesta instância em 19/11/2026:
+        # o painel deu 500 de 13:02:43 a 13:03:08 com "Unknown column
+        # 'c.apagar_pedido_em'", porque o `wire:poll` de 2 s da tela de Campanhas
+        # consultava a coluna nova. E entre apagar e extrair não havia código nenhum: um
+        # `bin/fastagi.php` ausente derruba a chamada que chega naquele instante.
+        #
+        # Agora:
+        #   1. o artefato é extraído em `.novo`, e o composer roda LÁ;
+        #   2. as migrações rodam a partir de `.novo`, com o painel ainda no código antigo;
+        #   3. a troca é um `mv` por entrada — milissegundos, não dezenas de segundos.
+        #
+        # 🔴 ISTO SUPÕE MIGRAÇÃO COMPATÍVEL COM O CÓDIGO ANTIGO durante o instante entre o
+        # passo 2 e o 3. Acrescentar coluna, tabela ou índice é; apagar ou renomear coluna
+        # que o código antigo lê não é. Quem precisar disso faz em dois deploys: primeiro
+        # o código para de usar, depois a migração remove.
+        - name: Área de preparo limpa
+          ansible.builtin.file:
+            path: "{{ app_dir }}/.novo"
+            state: absent
+
+        - name: Área de preparo
+          ansible.builtin.file:
+            path: "{{ app_dir }}/.novo"
+            state: directory
+            owner: "{{ app_usuario }}"
+            group: "{{ app_usuario }}"
+            mode: "0755"
+
+        - name: Extrair o código novo na área de preparo
+          ansible.builtin.unarchive:
+            src: "{{ artefato_local }}"
+            dest: "{{ app_dir }}/.novo"
+            owner: "{{ app_usuario }}"
+            group: "{{ app_usuario }}"
+
+        # `storage` e `.env` são da INSTÂNCIA: a área de preparo aponta para os de verdade,
+        # e é por isso que o composer e a migração abaixo enxergam o banco e o diretório de
+        # cache. `vendor/` é copiado para o composer só instalar a diferença — sem ele,
+        # cada deploy baixaria tudo de novo.
+        - name: Ligar a área de preparo ao estado da instância
+          ansible.builtin.shell:
+            chdir: "{{ app_dir }}/.novo"
+            cmd: |
+              set -eu
+              rm -rf storage .env
+              ln -s {{ app_dir }}/storage storage
+              ln -s {{ app_dir }}/.env .env
+              mkdir -p bootstrap/cache
+              if [ -d {{ app_dir }}/vendor ]; then cp -a {{ app_dir }}/vendor vendor; fi
+          changed_when: true
+
+        # Roda como root e o dono é corrigido depois. `become_user` para uma conta
+        # com shell nologin é mais superfície de falha do que o chown resolve.
+        - name: Dependências de produção
+          ansible.builtin.command:
+            chdir: "{{ app_dir }}/.novo"
+            cmd: >-
+              composer install --no-dev --optimize-autoloader
+              --no-interaction --no-progress
+          environment:
+            COMPOSER_ALLOW_SUPERUSER: "1"
+          changed_when: true
+
+        # `-h`: muda o próprio link, não o alvo. Sem ele, o `storage` e o `.env` de
+        # verdade seriam atravessados.
+        - name: Dono da área de preparo
+          ansible.builtin.command:
+            cmd: "chown -R -h {{ app_usuario }}:{{ app_usuario }} {{ app_dir }}/.novo"
+          changed_when: true
+
+        # A partir de `.novo`: o código que conhece as migrações novas é o novo. O painel
+        # continua servindo o antigo enquanto isto roda.
+        - name: Migrações
+          ansible.builtin.command:
+            chdir: "{{ app_dir }}/.novo"
+            cmd: "php{{ php_versao }} artisan migrate --force --no-interaction"
+          register: migracoes
+          changed_when: "'Nothing to migrate' not in migracoes.stdout"
+
+        # 🔴 A TROCA. Uma entrada por vez: tira a antiga para `.velho` e põe a nova no
+        # lugar, dois `rename` no mesmo sistema de arquivos. A janela sem a entrada é de
+        # microssegundos, e a troca inteira, de milissegundos.
+        #
+        # Substituir o diretório INTEIRO é também o que mantinha a tarefa antiga de
+        # "limpar antes de extrair": arquivo removido do repositório não sobrevive. Custou
+        # um deploy quando `config/ambiente.php` foi movido e a cópia velha continuou em
+        # `config/`, carregada pelo Laravel como configuração.
+        #
+        # Ficam de fora `storage` e `.env`, que são da instância. O resto do artefato,
+        # incluindo `vendor/` já instalado, entra.
+        - name: Trocar o código
+          ansible.builtin.shell:
+            chdir: "{{ app_dir }}"
+            cmd: |
+              set -eu
+              rm -rf .velho
+              mkdir .velho
+              for e in $(ls -A .novo); do
+                case "$e" in storage|.env) continue ;; esac
+                if [ -e "$e" ] || [ -L "$e" ]; then mv "$e" .velho/; fi
+                mv ".novo/$e" "$e"
+              done
+              rm -rf .novo .velho
+          changed_when: true
+          notify: Reiniciar o dialer e o worker
+
         # O composer roda como root, então `vendor/` nasce de root. Sem isto o
         # `artisan optimize` não escreveria o cache e o painel falharia na primeira
         # requisição — como usuário da aplicação, não como root.
@@ -647,13 +707,6 @@
             owner: "{{ app_usuario }}"
             group: "{{ app_usuario }}"
             recurse: true
-
-        - name: Migrações
-          ansible.builtin.command:
-            chdir: "{{ app_dir }}"
-            cmd: "php{{ php_versao }} artisan migrate --force --no-interaction"
-          register: migracoes
-          changed_when: "'Nothing to migrate' not in migracoes.stdout"
 
         # 🔴 A ROTA DO BANCO VIRA ARQUIVO AQUI.
         #
