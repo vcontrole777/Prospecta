@@ -1,0 +1,21 @@
+[Unit]
+Description=Prospecta — apagamento de Campanhas marcadas no painel
+After=mysql.service
+Wants=mysql.service
+
+[Service]
+Type=oneshot
+
+# O painel só marca `campanha.apagar_pedido_em`; quem apaga é este script, em lotes,
+# porque uma Campanha grande não cabe nos 30 s de uma requisição. Ver
+# app/Worker/ApagadorDeCampanha.php.
+ExecStart=/usr/bin/php{{ php_versao }} {{ app_dir }}/bin/apagar-campanhas.php
+
+User={{ app_usuario }}
+Group={{ app_usuario }}
+
+# Como o expurgo: só escreve no diretório de gravação.
+ProtectSystem=strict
+ReadWritePaths={{ gravacao_dir }}
+PrivateTmp=true
+NoNewPrivileges=true

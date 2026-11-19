@@ -55,6 +55,12 @@ final class Campanhas extends Component
         }
         $c = (array) $linha;
 
+        if (($c['apagar_pedido_em'] ?? null) !== null) {
+            session()->flash('recusa', 'Não iniciei: esta Campanha está sendo apagada.');
+
+            return;
+        }
+
         $faltas = [];
 
         // Status 1 é disponível e 4 é aguardando a próxima rodada — as duas contam,
@@ -127,6 +133,7 @@ final class Campanhas extends Component
         DB::table('campanha')
             ->where('id', $id)
             ->whereIn('status', [0, 2])
+            ->whereNull('apagar_pedido_em')
             ->update([
                 'status' => 1,
                 'iniciada_em' => DB::raw('COALESCE(iniciada_em, NOW())'),
@@ -488,6 +495,12 @@ final class Campanhas extends Component
             return;
         }
 
+        if (DB::table('campanha')->where('id', $id)->whereNotNull('apagar_pedido_em')->exists()) {
+            session()->flash('recusa', 'Não reiniciei: esta Campanha está sendo apagada.');
+
+            return;
+        }
+
         // 🔴 RECUSA COM A CAMPANHA NO AR. O botão já não aparece nesse estado, mas a
         // guarda mora aqui: repor a fila enquanto o dialer trabalha faria a mesma pessoa
         // receber duas ligações da mesma rodada, e agora há apagamento no meio.
@@ -759,6 +772,46 @@ final class Campanhas extends Component
     }
 
     /**
+     * Pede para apagar a Campanha inteira: ela, os Leads, o histórico e as gravações.
+     *
+     * 🔴 SÓ MARCA. Quem apaga é `bin/apagar-campanhas.php`, em lotes, a cada minuto — uma
+     * Campanha grande não cabe numa requisição. Ver `App\Worker\ApagadorDeCampanha`.
+     * Enquanto a marca existe, `iniciar` e `reiniciar` recusam, e a tela mostra
+     * "apagando".
+     *
+     * 🔴 RECUSA COM A CAMPANHA NO AR, como o `reiniciar`: apagar a fila de baixo do dialer
+     * enquanto ele disca é pedir Ligação sem Lead. Pausar antes é um clique.
+     *
+     * A Lista de bloqueio NÃO é tocada: Opt-out vale para toda Campanha, para sempre.
+     */
+    public function apagar(int $id): void
+    {
+        $nome = DB::table('campanha')->where('id', $id)->value('nome');
+        if ($nome === null) {
+            return;
+        }
+
+        // Condicional no próprio UPDATE, e não ler-depois-escrever: entre ler o status e
+        // gravar a marca, outro clique poderia pôr a Campanha no ar.
+        $marcadas = DB::table('campanha')
+            ->where('id', $id)
+            ->where('status', '<>', 1)
+            ->update(['apagar_pedido_em' => now(), 'apagar_erro' => null]);
+
+        if ($marcadas === 0) {
+            session()->flash('recusa', 'Não apaguei: a Campanha está no ar. Pause antes.');
+
+            return;
+        }
+
+        session()->flash('recado', sprintf(
+            'A Campanha "%s" será apagada em segundos. Campanha grande pode levar alguns minutos; '
+            . 'enquanto isso ela aparece como "apagando".',
+            self::texto($nome),
+        ));
+    }
+
+    /**
      * @return list<array<string,int|string|null>>
      */
     private function resumo(): array
@@ -773,6 +826,7 @@ final class Campanhas extends Component
         // apenas parece alto.
         $porCampanha = DB::select(
             'SELECT c.id, c.nome, c.tipo, c.status, c.bina_regra, c.rodada_atual,
+                    c.apagar_pedido_em IS NOT NULL AS apagando, c.apagar_erro,
                     c.max_tentativas, c.chamadas_simultaneas,
                     COUNT(l.id)                    AS leads,
                     COALESCE(SUM(l.status = 1), 0) AS disponiveis,
@@ -814,6 +868,8 @@ final class Campanhas extends Component
                 'nome' => self::texto($c['nome'] ?? null),
                 'tipo' => self::texto($c['tipo'] ?? null),
                 'status' => self::inteiro($c['status'] ?? null),
+                'apagando' => self::inteiro($c['apagando'] ?? null),
+                'apagar_erro' => is_string($c['apagar_erro'] ?? null) ? $c['apagar_erro'] : null,
                 'bina_regra' => self::texto($c['bina_regra'] ?? null),
                 'rodada' => self::inteiro($c['rodada_atual'] ?? null),
                 'max_tentativas' => self::inteiro($c['max_tentativas'] ?? null),

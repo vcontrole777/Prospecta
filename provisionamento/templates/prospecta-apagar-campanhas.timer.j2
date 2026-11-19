@@ -1,0 +1,11 @@
+[Unit]
+Description=Prospecta — apagamento de Campanhas marcadas, a cada minuto
+
+[Timer]
+# A cada minuto: é o tempo entre o clique e o começo do apagamento. Sem marca, a volta é
+# uma consulta só e o script sai em silêncio.
+OnCalendar=minutely
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
