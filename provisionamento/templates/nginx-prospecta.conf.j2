@@ -1,9 +1,47 @@
 # Gerado pelo Ansible.
-# O certbot acrescenta a escuta em 443 e o certificado ao rodar.
+#
+# 🔴 O HTTPS É DESTE TEMPLATE, e não do certbot.
+#
+# Antes o `certbot --nginx` EDITAVA este arquivo para acrescentar o 443. A
+# reexecução seguinte do playbook reescrevia o arquivo a partir do template e
+# apagava o HTTPS — e o certbot não voltava a rodar, por causa do `creates:`.
+# A primeira atualização depois de ativar o HTTPS o derrubava.
+#
+# Agora o certbot só EMITE (`certonly --webroot`) e o template monta o 443 quando
+# o certificado existe. `nginx_https` vem de site.yml.
+{% set certificado = '/etc/letsencrypt/live/' + dominio %}
+{% if nginx_https %}
 
 server {
     listen 80;
     server_name {{ dominio }};
+
+    # A renovação do certbot valida por aqui, então este caminho NÃO redireciona.
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ app_dir }}/public;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+{% endif %}
+
+server {
+{% if nginx_https %}
+    listen 443 ssl;
+    http2 on;
+    server_name {{ dominio }};
+
+    ssl_certificate     {{ certificado }}/fullchain.pem;
+    ssl_certificate_key {{ certificado }}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+{% else %}
+    listen 80;
+    server_name {{ dominio }};
+{% endif %}
 
     root {{ app_dir }}/public;
     index index.php;

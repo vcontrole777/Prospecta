@@ -19,7 +19,15 @@ RestartSec=5
 User={{ app_usuario }}
 Group={{ app_usuario }}
 
-Environment=PROSPECTA_CANAIS={{ canais_contratados }}
+# 🔴 SEM `Environment=PROSPECTA_CANAIS`. Havia um aqui, repetindo o `.env`.
+#
+# O `bootstrap/ambiente.php` dá precedência ao ambiente sobre o arquivo, então a
+# cópia da unidade VENCIA. Subindo de 60 para 150, o `.env` mudou, o dialer
+# reiniciou ANTES do bloco das unidades — ainda com a unidade velha — e o bloco só
+# fez `daemon-reload`. Resultado: `.env` dizendo 150, dialer discando com 60, e
+# nada em log apontando a divergência além do "canais":60 da partida.
+#
+# O `.env` é a fonte única (ver o cabeçalho de templates/env.j2).
 
 [Install]
 WantedBy=multi-user.target

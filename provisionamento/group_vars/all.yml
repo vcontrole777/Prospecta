@@ -93,6 +93,23 @@ fastagi_porta: 4573
 fastagi_host: 127.0.0.1
 fastagi_max_conexoes: 512   # o PADRÃO do systemd é 64 — ver comentário na unidade
 
+# Porta do SSH liberada no firewall ANTES de ligá-lo. Se a VPS usar outra, troque em
+# host_vars — com o valor errado, o `ufw enable` tranca a máquina.
+ssh_porta: 22
+
+# Origens aceitas na 5060/udp. Vazio = aberta para qualquer IP, que é o único padrão
+# seguro para uma instalação que ainda não sabe quem é a operadora.
+#
+# 🔴 PREENCHA quando a rota autentica por IP. Aberta, a 5060 recebe varredura de
+# robôs o dia inteiro: medido nesta base em 16/11/2026, 1,7 milhão de REGISTER
+# recusados em 13 dias, e o messages.log com 370 MB. Liste TODOS os IPs de onde a
+# operadora pode sinalizar, não só o que está na tela de Rota — um BYE vindo de um
+# POP fora da lista cai no firewall e a chamada fica pendurada.
+#
+# O RTP continua aberto de propósito: a mídia pode vir de IPs que a operadora não
+# documenta, e RTP sem sinalização não abre chamada nenhuma.
+sip_origens: []
+
 # Faixa de RTP. Dimensione para o número de canais contratados com folga.
 rtp_porta_inicio: 10000
 rtp_porta_fim: 20000
