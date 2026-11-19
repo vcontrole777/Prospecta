@@ -737,6 +737,8 @@
             - prospecta-expurgo.timer
             - prospecta-apagar-campanhas.service
             - prospecta-apagar-campanhas.timer
+            - prospecta-reiniciar-campanhas.service
+            - prospecta-reiniciar-campanhas.timer
           # `daemon-reload` sozinho não basta: o processo em execução segue com a
           # unidade antiga até reiniciar. A ordem dos handlers (systemd antes do
           # reinício) é a da lista `handlers`, não a desta.
@@ -787,6 +789,14 @@
         - name: Temporizador de apagamento de Campanha habilitado
           ansible.builtin.systemd:
             name: prospecta-apagar-campanhas.timer
+            enabled: true
+            state: started
+            daemon_reload: true
+
+        # Idem para o reinício: sem o timer, a Campanha fica "reiniciando" para sempre.
+        - name: Temporizador de reinício de Campanha habilitado
+          ansible.builtin.systemd:
+            name: prospecta-reiniciar-campanhas.timer
             enabled: true
             state: started
             daemon_reload: true

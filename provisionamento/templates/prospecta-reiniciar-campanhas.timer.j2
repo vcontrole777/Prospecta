@@ -1,0 +1,11 @@
+[Unit]
+Description=Prospecta — reinício de Campanhas marcadas, a cada minuto
+
+[Timer]
+# A cada minuto: é o tempo entre o clique e o começo do reinício. Sem marca, a volta é
+# uma consulta só.
+OnCalendar=minutely
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

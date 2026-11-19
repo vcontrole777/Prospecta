@@ -73,7 +73,9 @@
                             </td>
 
                             <td class="py-2.5 pr-4">
-                                @if ($c['apagando'])
+                                @if ($c['reiniciando'] && ! $c['apagando'])
+                                    <span class="rotulo text-base-content/60">reiniciando…</span>
+                                @elseif ($c['apagando'])
                                     {{-- O erro aparece AQUI, e não só no journal: sem ele a
                                          Campanha ficaria "apagando" para sempre sem motivo
                                          visível. --}}
@@ -83,6 +85,13 @@
                                     @endif
                                 @else
                                     <x-status-campanha :status="$c['status']" />
+                                @endif
+
+                                {{-- O recado do último reinício espera o operador AQUI: o
+                                     trabalho termina sem ninguém olhando, e a recusa de pôr
+                                     no ar precisa ser vista. Some no próximo iniciar. --}}
+                                @if ($c['reiniciar_aviso'] && ! $c['reiniciando'])
+                                    <div class="mt-1 max-w-xs text-xs {{ str_contains($c['reiniciar_aviso'], 'Não ') ? 'text-warning' : 'text-base-content/60' }}">{{ $c['reiniciar_aviso'] }}</div>
                                 @endif
                             </td>
 
@@ -129,7 +138,7 @@
                             <td class="py-2.5 text-right whitespace-nowrap">
                                 {{-- Campanha marcada para apagar não oferece ação nenhuma:
                                      todas mexeriam no que está sendo apagado. --}}
-                                @if (! $c['apagando'])
+                                @if (! $c['apagando'] && ! $c['reiniciando'])
                                 {{-- Só as transições que o dialer respeita:
                                      rascunho e pausada podem ir ao ar; no ar pode
                                      pausar; concluída não volta. --}}
@@ -156,7 +165,7 @@
                                      real; "reiniciar" sozinho não sugere isso. --}}
                                 @if ($c['status'] !== 1 && ($c['discadas'] > 0 || $c['finalizados'] > 0 || $c['aguardando'] > 0))
                                     <button wire:click="reiniciar({{ $c['id'] }})"
-                                            wire:confirm="Reiniciar a Campanha do zero?&#10;&#10;APAGA todo o histórico dela — ligações, desfechos, dados capturados e GRAVAÇÕES. Isso NÃO tem volta; exporte na tela de Resultados antes, se precisar.&#10;&#10;Todos os números voltam para a fila, MENOS quem deu Opt-in e quem está na Lista de bloqueio (Opt-out). A Campanha vai ao ar em seguida e começa a discar sozinha."
+                                            wire:confirm="Reiniciar a Campanha do zero?&#10;&#10;APAGA todo o histórico dela — ligações, desfechos, dados capturados e GRAVAÇÕES. Isso NÃO tem volta; exporte na tela de Resultados antes, se precisar.&#10;&#10;Todos os números voltam para a fila, MENOS quem deu Opt-in e quem está na Lista de bloqueio (Opt-out). O reinício começa em até um minuto e, numa Campanha grande, leva alguns minutos. Ao terminar, a Campanha vai ao ar e começa a discar sozinha."
                                             class="btn btn-ghost btn-xs text-error">reiniciar</button>
                                 @endif
 
