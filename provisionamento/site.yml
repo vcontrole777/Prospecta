@@ -704,6 +704,8 @@
             - prospecta-worker.service
             - prospecta-expurgo.service
             - prospecta-expurgo.timer
+            - prospecta-apagar-campanhas.service
+            - prospecta-apagar-campanhas.timer
           notify: Recarregar o systemd
 
         - name: Socket do FastAGI habilitado
@@ -740,6 +742,15 @@
         - name: Temporizador de expurgo de gravação habilitado
           ansible.builtin.systemd:
             name: prospecta-expurgo.timer
+            enabled: true
+            state: started
+            daemon_reload: true
+
+        # O painel só MARCA a Campanha para apagar; sem este timer a marca fica lá e a
+        # tela mostra "apagando" para sempre.
+        - name: Temporizador de apagamento de Campanha habilitado
+          ansible.builtin.systemd:
+            name: prospecta-apagar-campanhas.timer
             enabled: true
             state: started
             daemon_reload: true
