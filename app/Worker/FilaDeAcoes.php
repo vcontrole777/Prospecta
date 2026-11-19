@@ -65,6 +65,26 @@ final class FilaDeAcoes
         $this->pdo->beginTransaction();
 
         try {
+            // 🔴 LISTA DE BLOQUEIO NO INSTANTE DO ENVIO, como o dialer confere no instante
+            // da discagem. O Disparo pode ter nascido antes do opt-out, ou voltado à fila
+            // pelo "Reenviar falhados" depois dele — e template para quem pediu para sair
+            // é o contato que o opt-out proíbe, pago.
+            //
+            // `falhou` com motivo, e não um NOT EXISTS no SELECT: filtrar deixaria a Ação
+            // escondida em `pendente` para sempre, e o operador sem saber por quê.
+            $this->pdo->prepare(
+                "UPDATE acao a
+                   JOIN ligacao  l  ON l.id  = a.referencia_id
+                   JOIN leads    le ON le.id = l.lead_id
+                   JOIN campanha c  ON c.id  = l.campanha_id
+                   JOIN bloqueio b  ON b.telefone = le.telefone
+                    SET a.status = 'falhou',
+                        a.resposta = CONCAT(COALESCE(a.resposta, ''), ' | bloqueado'),
+                        a.processado_em = NOW()
+                  WHERE a.tipo = 'disparo' AND a.status = 'pendente'
+                    AND c.canal_opt_in = :canal"
+            )->execute(['canal' => $canal === 'sms' ? 'sms' : 'whatsapp']);
+
             $st = $this->pdo->prepare(
                 "SELECT a.id, a.tentativas, a.referencia_id,
                         le.telefone, le.dados_extras,

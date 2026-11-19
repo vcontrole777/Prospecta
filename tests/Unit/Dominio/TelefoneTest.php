@@ -93,6 +93,42 @@ final class TelefoneTest extends TestCase
         $this->assertNull($t->tentar('nada disso'));
     }
 
+    /**
+     * 🔴 A Meta identifica celular antigo SEM o nono dígito: o `wa_id` de quem
+     * registrou o WhatsApp antes de 2016 tem 12 dígitos. Em produção, 463 de 480
+     * mensagens recebidas vieram assim. Gravado cru, o opt-out vai para o
+     * `bloqueio` com 12 dígitos e o dialer, que compara por igualdade com o Lead
+     * de 13, continua discando.
+     */
+    #[Test]
+    #[DataProvider('dosWaId')]
+    public function de_wa_id_devolve_o_canonico_do_lead(string $waId, string $esperado, string $porque): void
+    {
+        $this->assertSame($esperado, (new Telefone())->deWaId($waId), $porque);
+    }
+
+    /** @return iterable<string, array{string, string, string}> */
+    public static function dosWaId(): iterable
+    {
+        yield 'celular antigo sem o 9' => ['551187654321', '5511987654321', 'o formato que a Meta manda'];
+        yield 'celular antigo começando em 9' => ['556298485352', '5562998485352', 'idem, outro DDD'];
+        yield 'celular antigo começando em 6' => ['557166543210', '5571966543210', 'faixa 6 também era móvel'];
+        yield 'já com o 9' => ['5511987654321', '5511987654321', 'quem registrou depois de 2016'];
+        yield 'fixo fica fixo' => ['551134567890', '551134567890', 'WhatsApp Business em linha fixa'];
+        yield 'com +' => ['+551187654321', '5511987654321', 'se um dia vier com +'];
+    }
+
+    #[Test]
+    public function de_wa_id_recusa_o_que_nao_e_brasileiro(): void
+    {
+        $t = new Telefone();
+
+        // 12 dígitos de outro país não podem ganhar um 9 e virar número brasileiro.
+        $this->assertNull($t->tentarWaId('351912345678'));
+        $this->assertNull($t->tentarWaId('552087654321'), 'DDD 20 não existe');
+        $this->assertNull($t->tentarWaId(''));
+    }
+
     /** A normalização na entrada é o que torna isto substring em vez de parser. */
     #[Test]
     public function ddd_e_tipo_saem_por_posicao(): void
