@@ -73,7 +73,17 @@
                             </td>
 
                             <td class="py-2.5 pr-4">
-                                <x-status-campanha :status="$c['status']" />
+                                @if ($c['apagando'])
+                                    {{-- O erro aparece AQUI, e não só no journal: sem ele a
+                                         Campanha ficaria "apagando" para sempre sem motivo
+                                         visível. --}}
+                                    <span class="rotulo {{ $c['apagar_erro'] ? 'text-error' : 'text-base-content/60' }}">apagando…</span>
+                                    @if ($c['apagar_erro'])
+                                        <div class="mt-1 max-w-xs text-xs text-error">{{ $c['apagar_erro'] }}</div>
+                                    @endif
+                                @else
+                                    <x-status-campanha :status="$c['status']" />
+                                @endif
                             </td>
 
                             <td class="py-2.5 pr-4">
@@ -117,6 +127,9 @@
                             </td>
 
                             <td class="py-2.5 text-right whitespace-nowrap">
+                                {{-- Campanha marcada para apagar não oferece ação nenhuma:
+                                     todas mexeriam no que está sendo apagado. --}}
+                                @if (! $c['apagando'])
                                 {{-- Só as transições que o dialer respeita:
                                      rascunho e pausada podem ir ao ar; no ar pode
                                      pausar; concluída não volta. --}}
@@ -164,6 +177,16 @@
 
                                 <a href="{{ route('campanha.editar', $c['id']) }}"
                                    class="btn btn-ghost btn-xs">editar</a>
+
+                                {{-- 🔴 APAGAR SÓ FORA DO AR, e por último na linha: é a ação
+                                     sem volta, e a mão não deve cair nela procurando
+                                     "editar". O texto nomeia o que se perde e o que fica. --}}
+                                @if ($c['status'] !== 1)
+                                    <button wire:click="apagar({{ $c['id'] }})"
+                                            wire:confirm="Apagar a Campanha &quot;{{ $c['nome'] }}&quot;?&#10;&#10;APAGA a Campanha, todos os números dela, as ligações, os desfechos, os dados capturados e as GRAVAÇÕES. Isso NÃO tem volta; exporte na tela de Resultados antes, se precisar.&#10;&#10;A Lista de bloqueio (Opt-out) é mantida."
+                                            class="btn btn-ghost btn-xs text-error">apagar</button>
+                                @endif
+                                @endif
                             </td>
                         </tr>
                     @endforeach
