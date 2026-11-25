@@ -68,6 +68,33 @@ final class FilaDeAcoesTest extends TestCase
     }
 
     /**
+     * 🔴 QUEM PEDIU PARA SAIR NÃO RECEBE TEMPLATE.
+     *
+     * O Disparo pode ter sido criado antes do opt-out — ou ser um "Reenviar falhados"
+     * depois dele. A lista de bloqueio é conferida no instante do envio, como o dialer
+     * confere no instante da discagem.
+     *
+     * A Ação NÃO fica escondida em `pendente` para sempre: vira `falhou` com o motivo, para
+     * o operador ver na tela por que aquele Lead não recebeu.
+     */
+    #[Test]
+    public function reivindicar_nao_envia_para_telefone_bloqueado(): void
+    {
+        $bloqueada = $this->acao('5511900000001');
+        $livre = $this->acao('5511900000002');
+        DB::table('bloqueio')->insert(['telefone' => '5511900000001', 'origem' => 'opt_out', 'criado_em' => now()]);
+
+        $lote = $this->fila->reivindicar(10);
+
+        $this->assertSame([$livre], array_map(static fn (array $l): int => (int) $l['id'], $lote));
+
+        $a = (array) DB::table('acao')->where('id', $bloqueada)->first();
+        $this->assertSame('falhou', $a['status']);
+        $this->assertStringContainsString('bloqueado', (string) $a['resposta']);
+        $this->assertSame(0, (int) $a['tentativas'], 'não houve tentativa de envio');
+    }
+
+    /**
      * 🔴 SÓ `pendente`. Ação já enviada não é reivindicada de novo.
      *
      * Reenviar é mensagem paga em duplicata para quem já recebeu — o defeito mais caro

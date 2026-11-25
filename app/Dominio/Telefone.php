@@ -118,6 +118,45 @@ final class Telefone
         return $d;
     }
 
+    /**
+     * O canônico a partir do `wa_id` que a Meta manda no webhook.
+     *
+     * 🔴 A META IDENTIFICA CELULAR ANTIGO SEM O NONO DÍGITO. Quem registrou o WhatsApp
+     * antes da migração de 2016 continua com `wa_id` de 12 dígitos — `551187654321` —,
+     * mesmo que o número discável hoje seja `5511987654321`. Em produção, 463 de 480
+     * mensagens recebidas vinham assim.
+     *
+     * Por que NÃO está em `canonico`: lá, móvel sem o 9 é recusado de propósito, porque
+     * numa planilha ele é dado ruim e discar aquilo é `404`. Aqui é o formato documentado
+     * de um fornecedor, e o 9 que falta é certo.
+     *
+     * A regra é a da migração: assinante de 8 dígitos começando em 6 a 9 era móvel e
+     * ganhou o 9 na frente. Fixo (2 a 5) segue fixo — WhatsApp Business em linha fixa
+     * existe.
+     *
+     * @throws ErroDeDominio
+     */
+    public function deWaId(string $waId): string
+    {
+        $d = preg_replace('/\D/', '', $waId) ?? '';
+
+        if (strlen($d) === 12 && str_starts_with($d, '55') && preg_match('/^[6-9]/', substr($d, 4)) === 1) {
+            $d = substr($d, 0, 4) . '9' . substr($d, 4);
+        }
+
+        return $this->canonico($d);
+    }
+
+    /** `deWaId`, ou `null` em vez de exceção. */
+    public function tentarWaId(string $waId): ?string
+    {
+        try {
+            return $this->deWaId($waId);
+        } catch (ErroDeDominio) {
+            return null;
+        }
+    }
+
     /** O canônico, ou `null` em vez de exceção. Para laço de importação. */
     public function tentar(string $bruto): ?string
     {
