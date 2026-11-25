@@ -147,9 +147,21 @@ final class Fila
         return $st === false ? 0 : self::numero($st->fetchColumn());
     }
 
-    public function contarDisponiveis(int $campanhaId): int
+    /**
+     * Leads disponíveis (status 1), contados só ATÉ `$ate`.
+     *
+     * 🔴 O dialer chama isto a cada volta, e só usa o número para limitar o lote —
+     * `Ritmo::quantasOriginar` faz `min(livres, disponiveis)` — e para saber se é zero.
+     * Contar todos custava caro: em 25/11/2026 uma lista de 1,77 milhão de Leads
+     * levava ~0,5 s por volta só nesta contagem, disputando disco com a tela de
+     * Campanhas. Com o teto, a consulta para no milésimo Lead que acha.
+     */
+    public function contarDisponiveis(int $campanhaId, int $ate = 1000): int
     {
-        $st = $this->pdo->prepare('SELECT COUNT(*) FROM leads WHERE campanha_id = :c AND status = 1');
+        $st = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM (SELECT 1 FROM leads WHERE campanha_id = :c AND status = 1 LIMIT '
+            . max(1, $ate) . ') t'
+        );
         $st->execute(['c' => $campanhaId]);
 
         return self::numero($st->fetchColumn());

@@ -61,12 +61,15 @@ final class Ativacao
 
         // Status 1 é disponível e 4 é aguardando a próxima rodada — as duas contam,
         // porque o dialer abre a rodada seguinte sozinho.
-        $disponiveis = DB::table('leads')
+        //
+        // `exists()` e não `count()`: a pergunta é "tem algum?", e contar uma lista de
+        // 1,77 milhão de Leads levou minutos com o banco ocupado (25/11/2026).
+        $temDisponivel = DB::table('leads')
             ->where('campanha_id', $id)
             ->whereIn('status', [1, 4])
-            ->count();
+            ->exists();
 
-        if ($disponiveis === 0) {
+        if (! $temDisponivel) {
             $faltas[] = 'nenhum Lead disponível — importe a lista antes';
         }
 
