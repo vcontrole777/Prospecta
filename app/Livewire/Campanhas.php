@@ -157,7 +157,7 @@ final class Campanhas extends Component
      */
     private function resumo(): array
     {
-        // 🔴 DUAS consultas de propósito, não uma com dois LEFT JOIN.
+        // 🔴 Consultas SEPARADAS de propósito, não uma com dois LEFT JOIN.
         //
         // Juntar `leads` E `ligacao` no mesmo GROUP BY faz produto cartesiano —
         // cada Lead multiplicado por cada Ligação da mesma Campanha — e TODA
@@ -165,21 +165,31 @@ final class Campanhas extends Component
         // espécie: uma tela plausível, com números errados por um múltiplo que
         // muda conforme a Campanha avança. Ninguém desconfia de um total que
         // apenas parece alto.
+        //
+        // 🔴 E a contagem de Leads é AGRUPADA POR (campanha_id, status), não um LEFT JOIN
+        // com SUM(l.status = n). O join levava o MySQL ao índice único (campanha_id,
+        // telefone) e a ler cada linha de Lead: com uma lista de 1,77 milhão, ~10 s por
+        // consulta — e a tela pergunta a cada poll. As consultas se empilharam por
+        // minutos, deram 504 e disputaram disco com o dialer (25/11/2026). Agrupada,
+        // ela só lê o índice (campanha_id, status): ~0,5 s para os mesmos números.
         $porCampanha = DB::select(
             'SELECT c.id, c.nome, c.tipo, c.status, c.bina_regra, c.rodada_atual,
                     c.apagar_pedido_em IS NOT NULL AS apagando, c.apagar_erro,
                     c.reiniciar_pedido_em IS NOT NULL AS reiniciando, c.reiniciar_aviso,
-                    c.max_tentativas, c.chamadas_simultaneas,
-                    COUNT(l.id)                    AS leads,
-                    COALESCE(SUM(l.status = 1), 0) AS disponiveis,
-                    COALESCE(SUM(l.status = 2), 0) AS em_voo,
-                    COALESCE(SUM(l.status = 4), 0) AS aguardando,
-                    COALESCE(SUM(l.status = 3), 0) AS finalizados
+                    c.max_tentativas, c.chamadas_simultaneas
                FROM campanha c
-               LEFT JOIN leads l ON l.campanha_id = c.id
-              GROUP BY c.id
               ORDER BY c.status = 1 DESC, c.id DESC'
         );
+
+        $leads = [];
+        foreach (DB::select(
+            'SELECT campanha_id, status, COUNT(*) AS n
+               FROM leads
+              GROUP BY campanha_id, status'
+        ) as $linha) {
+            $l = (array) $linha;
+            $leads[self::inteiro($l['campanha_id'] ?? null)][self::inteiro($l['status'] ?? null)] = self::inteiro($l['n'] ?? null);
+        }
 
         $ligacoes = [];
         foreach (DB::select(
@@ -201,6 +211,7 @@ final class Campanhas extends Component
             $c = (array) $linha;
             $id = self::inteiro($c['id'] ?? null);
             $g = $ligacoes[$id] ?? [];
+            $porStatus = $leads[$id] ?? [];
 
             $discadas = self::inteiro($g['ligacoes'] ?? null);
             $atendidas = self::inteiro($g['atendidas'] ?? null);
@@ -218,11 +229,11 @@ final class Campanhas extends Component
                 'rodada' => self::inteiro($c['rodada_atual'] ?? null),
                 'max_tentativas' => self::inteiro($c['max_tentativas'] ?? null),
                 'simultaneas' => self::inteiro($c['chamadas_simultaneas'] ?? null),
-                'leads' => self::inteiro($c['leads'] ?? null),
-                'disponiveis' => self::inteiro($c['disponiveis'] ?? null),
-                'em_voo' => self::inteiro($c['em_voo'] ?? null),
-                'aguardando' => self::inteiro($c['aguardando'] ?? null),
-                'finalizados' => self::inteiro($c['finalizados'] ?? null),
+                'leads' => array_sum($porStatus),
+                'disponiveis' => $porStatus[1] ?? 0,
+                'em_voo' => $porStatus[2] ?? 0,
+                'aguardando' => $porStatus[4] ?? 0,
+                'finalizados' => $porStatus[3] ?? 0,
                 'discadas' => $discadas,
                 'atendidas' => $atendidas,
                 'opt_in' => self::inteiro($g['opt_in'] ?? null),

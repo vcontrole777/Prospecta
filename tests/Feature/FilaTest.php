@@ -332,6 +332,25 @@ final class FilaTest extends TestCase
         // Nada em voo e nada disponível: agora o dialer pode concluir a Campanha.
     }
 
+    /**
+     * A contagem de disponíveis para no teto: o dialer só a usa para limitar o lote e
+     * saber se é zero, e contar uma lista de milhões a cada volta pesava no banco.
+     */
+    #[Test]
+    public function contar_disponiveis_para_no_teto(): void
+    {
+        $c = $this->campanha(maxTentativas: 1);
+        foreach (range(1, 5) as $n) {
+            $this->lead($c, '551190000000' . $n);
+        }
+
+        $this->assertSame(3, $this->fila->contarDisponiveis($c, 3));
+        $this->assertSame(5, $this->fila->contarDisponiveis($c));
+
+        $this->fila->reivindicar($c, 4);
+        $this->assertSame(1, $this->fila->contarDisponiveis($c, 3));
+    }
+
     /** Reconciliar libera o canal na contabilidade — era o motivo original da varredura. */
     #[Test]
     public function reconciliar_libera_o_canal_ocupado(): void

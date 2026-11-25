@@ -125,3 +125,10 @@ php_extensoes:
   - intl
   - bcmath
   - opcache
+
+# Cache do InnoDB, em MB. O padrão do pacote é 128 MB, e em 25/11/2026 só a tabela
+# de Leads já tinha ~350 MB (dados + índices) com uma lista de 1,77 milhão: toda
+# contagem ia ao disco, as consultas do painel levavam minutos e se empilhavam, e o
+# dialer esperava atrás delas. 40% da RAM, em múltiplos de 128 MB (o tamanho do
+# bloco do InnoDB), deixa o resto para Asterisk, PHP e o cache de arquivos.
+mysql_buffer_pool_mb: "{{ ((ansible_memtotal_mb * 0.4) // 128 * 128) | int }}"

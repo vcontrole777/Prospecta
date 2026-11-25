@@ -1,16 +1,16 @@
 {{--
-    `wire:poll.2s` sobre um AGREGADO, não sobre linhas de Ligação.
+    `wire:poll.5s` sobre um AGREGADO, não sobre linhas de Ligação.
 
-    2 s e não 1 s porque nada aqui muda mais rápido que isso de forma útil: o
-    operador está lendo totais, não perseguindo um canal. E o custo é fixo — uma
-    linha por Campanha, independente de serem 10 ou 200 canais contratados. É a
-    razão pela qual esta tela existe antes da tabela ao vivo (ver Campanhas.php).
+    O operador está lendo totais, não perseguindo um canal — quem acompanha canal
+    é a tela Ao vivo. O custo NÃO é fixo: a contagem lê o índice de Leads inteiro,
+    e com uma lista de 1,77 milhão isso dá ~0,5 s por poll (25/11/2026). Era 2 s;
+    a 2 s, uma aba aberta ocupava um quarto de CPU de uma VPS de dois núcleos.
 --}}
-<div wire:poll.2s>
+<div wire:poll.5s>
     <div class="flex items-baseline justify-between border-b border-[var(--rule)] pb-3">
         <div class="flex items-baseline gap-3">
             <h1 class="text-lg font-semibold tracking-tight">Campanhas</h1>
-            <span class="rotulo">atualiza a cada 2s</span>
+            <span class="rotulo">atualiza a cada 5s</span>
         </div>
         <a href="{{ route('campanha.nova') }}" class="btn btn-primary btn-sm">Nova Campanha</a>
     </div>

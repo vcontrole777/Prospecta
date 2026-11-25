@@ -113,7 +113,7 @@
         # 33060 — e a VPS não tem firewall por padrão. Medido em 03/11/2026: as duas
         # portas abertas para a internet. O usuário do banco é `@localhost`, mas porta
         # exposta é superfície de ataque mesmo assim. O banco só é usado daqui.
-        - name: MySQL só na interface local
+        - name: MySQL só na interface local, com cache do tamanho da base
           ansible.builtin.copy:
             dest: /etc/mysql/mysql.conf.d/99-prospecta.cnf
             content: |
@@ -121,6 +121,7 @@
               [mysqld]
               bind-address = 127.0.0.1
               mysqlx-bind-address = 127.0.0.1
+              innodb_buffer_pool_size = {{ mysql_buffer_pool_mb }}M
             mode: "0644"
           notify: Reiniciar o MySQL
 
