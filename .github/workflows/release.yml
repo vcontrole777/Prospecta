@@ -1,0 +1,67 @@
+---
+# O artefato que o `install.sh` baixa.
+#
+# Existe porque a VPS não constrói assets: `node` não é instalado lá de
+# propósito — nodejs + npm + node_modules é peso considerável para produzir dois
+# arquivos estáticos que nunca mudam entre clientes (ver o bloco "Aplicação" no
+# site.yml). Alguém precisa rodar o `vite build`, e o lugar é aqui.
+#
+# `vendor/` NÃO entra: o playbook roda `composer install --no-dev` na própria
+# VPS, e o composer vem do apt. Só os assets precisam vir prontos.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag a publicar (ex. v1.2.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  artefato:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Construir os assets
+        run: |
+          npm ci
+          npm run build
+
+      # 🔴 FALHAR AQUI, e não na VPS. Sem o manifesto o `@vite` lança exceção
+      # quando o operador abre o painel: implantação "bem-sucedida" com produto
+      # quebrado. O playbook já checa isso do lado dele; esta é a mesma checagem
+      # um passo antes, onde o conserto é barato.
+      - name: Exigir o manifesto
+        run: test -f public/build/manifest.json
+
+      - name: Montar o tarball
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          # Fora da árvore: um tarball escrito dentro do diretório que ele mesmo
+          # arquiva é uma corrida com o próprio tar.
+          tar czf "/tmp/prospecta-${TAG}.tar.gz" \
+            --exclude=./.git \
+            --exclude=./node_modules \
+            .
+          ls -lh "/tmp/prospecta-${TAG}.tar.gz"
+
+      - name: Publicar no release
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${TAG}" --title "${TAG}" --generate-notes \
+            "/tmp/prospecta-${TAG}.tar.gz" \
+          || gh release upload "${TAG}" "/tmp/prospecta-${TAG}.tar.gz" --clobber
